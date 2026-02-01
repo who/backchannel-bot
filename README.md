@@ -51,15 +51,13 @@ The core use case is picking up a Claude session remotely:
    # Work with Claude interactively...
    ```
 
-2. **Walk away** — leave Claude running or close the terminal
-
-3. **Start the bot from the same directory:**
+2. **When ready to leave, start the bot from the same directory:**
    ```bash
    cd /path/to/your/project  # Same directory as step 1!
    uv run python -m backchannel_bot.main
    ```
 
-4. **Continue via Discord** — messages you send in Discord pick up the same conversation
+3. **Walk away** — continue via Discord from your phone or another device
 
 **Why it works:** By default, `CLAUDE_SESSION_MODE=continue` uses `claude -p --continue`, which continues the most recent Claude session in the current working directory. Since you start the bot from the same directory as your original session, it automatically connects to that conversation.
 
