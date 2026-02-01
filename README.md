@@ -2,6 +2,45 @@
 
 A hacky discord back channel communication from discord to your Claude tmux session
 
+## Overview
+
+**backchannel-bot** is a lightweight Discord bot that bridges Discord chat with an active Claude CLI session running inside TMUX on your local machine. This enables remote interaction with Claude from anywhere via Discord—from your phone, another computer, wherever—treating the bot as a transparent relay layer between Discord and your terminal.
+
+> **🚨 SECURITY WARNING 🚨**
+>
+> This is alpha-quality, hacky software with **no security hardening**. Anyone with access to your Discord bot token effectively has shell access to your machine via the TMUX session. Do not use this on shared systems, with sensitive data, or in any environment where security matters. You have been warned.
+
+### Why?
+
+When away from the development machine, there's no easy way to continue or interact with an ongoing Claude CLI session. Existing solutions require direct terminal access or complex remote desktop setups. A simple Discord-based relay allows asynchronous, mobile-friendly interaction with Claude sessions.
+
+### How It Works
+
+```
+┌─────────────┐         ┌──────────────────────────────────────┐
+│   Discord   │         │   Dev Machine (Desktop)              │
+│   Client    │◄───────►│  ┌─────────────────┐                 │
+│  (Mobile/   │ Discord │  │ backchannel-bot │◄───┐            │
+│   Desktop)  │   API   │  └─────────────────┘    │ local      │
+└─────────────┘         │  ┌─────────────────┐    │ tmux       │
+                        │  │  TMUX Session   │◄───┘ commands   │
+                        │  │  └─► Claude CLI │                 │
+                        │  └─────────────────┘                 │
+                        └──────────────────────────────────────┘
+```
+
+The bot runs on the same machine as the Claude CLI session. No SSH, no VPN—just local TMUX commands. The only network traffic is outbound HTTPS to Discord's API.
+
+### User Flow
+
+1. **Setup (One-time):** Create Discord bot, start TMUX session with Claude CLI, start backchannel-bot
+2. **Usage:** Send a message in Discord → Bot relays to TMUX → Claude responds → Bot sends response back to Discord
+3. **Session Management:** `!status` to check health, `!interrupt` to send Ctrl+C
+
+## Ortus Automation
+
+This project was scaffolded with [Ortus](https://github.com/who/ortus), which provides AI-powered development workflows including PRD-to-issues decomposition and automated implementation loops. See the `ortus/` directory for scripts and prompts.
+
 ## Tech Stack
 
 - **Language**: Python
