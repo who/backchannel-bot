@@ -177,8 +177,8 @@ class TestRoundTrip:
 
             await bot._handle_passthrough(message)
 
-            # Verify Claude print mode was called with the message
-            tmux_client.run_claude_print.assert_called_once_with("hello")
+            # Verify Claude print mode was called with the message and session mode
+            tmux_client.run_claude_print.assert_called_once_with("hello", session_mode="continue")
 
             # Verify response was sent to Discord
             message.channel.send.assert_called()

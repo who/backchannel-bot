@@ -97,6 +97,7 @@ The `.env` file supports these variables:
 | `DISCORD_CHANNEL_ID` | No | Restrict bot to one channel (recommended) |
 | `DISCORD_ALLOWED_USER_ID` | No | Restrict bot to one user (recommended) |
 | `TMUX_PANE` | No | Pane number for `!` commands (default: `0`) |
+| `CLAUDE_SESSION_MODE` | No | Session continuation mode (default: `continue`). See [Session Continuation](#session-continuation) |
 
 ### 4. Run the Bot
 
@@ -116,6 +117,35 @@ Send a message in your Discord channel. The bot will relay it to Claude and send
 - `!status` — Check if the TMUX session exists and is attached/detached
 - `!interrupt` — Send Ctrl+C to the TMUX pane (stop Claude mid-response)
 - `!raw <cmd>` — Run arbitrary tmux commands (e.g., `!raw list-windows`)
+- `!session` — List recent Claude sessions and view/change session mode
+- `!session <id>` — Switch to resume a specific session by its UUID
+
+## Session Continuation
+
+By default, the bot continues the most recent Claude Code session in the working directory. This is the core use case: you're working in Claude on your dev machine, walk away, start the bot, and the bot continues that same conversation.
+
+### Session Modes
+
+Set `CLAUDE_SESSION_MODE` in your `.env` file:
+
+| Mode | Description |
+|------|-------------|
+| `continue` | (Default) Continue the most recent session in the directory |
+| `fresh` | Start a new session each time |
+| `resume:<session_id>` | Resume a specific session by UUID |
+
+### Managing Sessions
+
+Use `!session` in Discord to manage sessions at runtime:
+
+```
+!session                    # List recent sessions
+!session continue           # Switch to continue mode
+!session fresh              # Switch to fresh mode
+!session abc12345-...       # Resume specific session (full UUID)
+```
+
+The `!session` command shows recent sessions with timestamps and the first prompt, making it easy to find and resume a specific conversation.
 
 ## Ortus Automation
 

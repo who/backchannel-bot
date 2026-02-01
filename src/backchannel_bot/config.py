@@ -32,6 +32,33 @@ def _validate_discord_id(env_var: str, value: str | None) -> str | None:
     return value
 
 
+def _validate_session_mode(value: str) -> str:
+    """Validate CLAUDE_SESSION_MODE value.
+
+    Args:
+        value: The session mode value to validate.
+
+    Returns:
+        The validated value.
+
+    Raises:
+        ConfigurationError: If the value is not a valid mode.
+    """
+    valid_modes = ("fresh", "continue")
+    if value in valid_modes:
+        return value
+    if value.startswith("resume:"):
+        session_id = value[7:]
+        if session_id:
+            return value
+        raise ConfigurationError(
+            "CLAUDE_SESSION_MODE 'resume:' requires a session ID. Use 'resume:<session_id>' format."
+        )
+    raise ConfigurationError(
+        f"CLAUDE_SESSION_MODE must be 'fresh', 'continue', or 'resume:<session_id>', not '{value}'"
+    )
+
+
 @dataclass
 class Config:
     """Bot configuration loaded from environment variables.
@@ -47,6 +74,10 @@ class Config:
         POLL_INTERVAL_MS: Polling interval in milliseconds (default: 750)
         RESPONSE_STABLE_SECONDS: Seconds of stability before response is complete (default: 2)
         OUTPUT_HISTORY_LINES: Number of lines to capture from TMUX (default: 200)
+        CLAUDE_SESSION_MODE: Session continuation mode (default: "continue")
+            - "fresh": Start a new session each time (`claude -p`)
+            - "continue": Continue the most recent session (`claude -p --continue`)
+            - "resume:<session_id>": Resume a specific session (`claude -p --resume <id>`)
     """
 
     discord_bot_token: str = field(default_factory=lambda: _get_required("DISCORD_BOT_TOKEN"))
@@ -70,6 +101,11 @@ class Config:
     )
     output_history_lines: int = field(
         default_factory=lambda: int(os.environ.get("OUTPUT_HISTORY_LINES", "200"))
+    )
+    claude_session_mode: str = field(
+        default_factory=lambda: _validate_session_mode(
+            os.environ.get("CLAUDE_SESSION_MODE", "continue")
+        )
     )
 
 

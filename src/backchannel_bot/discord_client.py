@@ -170,6 +170,8 @@ class BackchannelBot(discord.Client):
             await self._handle_raw_command(message)
         elif command == "!interrupt":
             await self._handle_interrupt_command(message)
+        elif command == "!session":
+            await self._handle_session_command(message)
         else:
             logger.debug("Unknown command: %s", command)
 
@@ -246,6 +248,66 @@ class BackchannelBot(discord.Client):
             logger.exception("TMUX error while handling !interrupt command")
             await self.send_response(message.channel, f"❌ TMUX error: {e}")
 
+    async def _handle_session_command(self, message: discord.Message) -> None:
+        """Handle the !session command to list/switch Claude sessions.
+
+        Usage:
+            !session - List recent sessions
+            !session <id> - Set session mode to resume that session
+
+        Args:
+            message: The Discord message containing the !session command.
+        """
+        logger.debug("Handling !session command")
+        parts = message.content.split(maxsplit=1)
+
+        if len(parts) == 1:
+            # List sessions
+            sessions = self.tmux_client.list_claude_sessions()
+            if not sessions:
+                await self.send_response(
+                    message.channel,
+                    "No Claude sessions found for this directory.\n"
+                    "Sessions are created when you run `claude` interactively.",
+                )
+                return
+
+            # Format session list
+            lines = ["**Recent Claude Sessions:**\n"]
+            for i, session in enumerate(sessions):
+                ts = session["timestamp"].strftime("%Y-%m-%d %H:%M")
+                prompt = session["first_prompt"]
+                if len(prompt) > 50:
+                    prompt = prompt[:47] + "..."
+                lines.append(f"{i + 1}. `{session['id'][:8]}...` ({ts})")
+                lines.append(f"   {prompt}\n")
+
+            lines.append("\n**Current mode:** " + self.config.claude_session_mode)
+            lines.append("\nTo switch: `!session <full-session-id>`")
+            await self.send_response(message.channel, "\n".join(lines))
+        else:
+            # Set session mode to resume specific session
+            session_id = parts[1].strip()
+            # Validate it looks like a UUID
+            if len(session_id) == 36 and session_id.count("-") == 4:
+                self.config.claude_session_mode = f"resume:{session_id}"
+                await self.send_response(
+                    message.channel,
+                    f"✅ Session mode set to resume `{session_id[:8]}...`\n"
+                    "Future messages will continue that session.",
+                )
+            elif session_id.lower() in ("continue", "fresh"):
+                self.config.claude_session_mode = session_id.lower()
+                await self.send_response(
+                    message.channel, f"✅ Session mode set to `{session_id.lower()}`"
+                )
+            else:
+                await self.send_response(
+                    message.channel,
+                    f"❌ Invalid session ID: `{session_id}`\n"
+                    "Use a full session UUID or 'continue' / 'fresh'.",
+                )
+
     async def _handle_passthrough(self, message: discord.Message) -> None:
         """Handle passthrough messages by running Claude Code in print mode.
 
@@ -287,7 +349,12 @@ class BackchannelBot(discord.Client):
             Claude's response text.
         """
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self.tmux_client.run_claude_print, prompt)
+        return await loop.run_in_executor(
+            None,
+            lambda: self.tmux_client.run_claude_print(
+                prompt, session_mode=self.config.claude_session_mode
+            ),
+        )
 
     async def _poll_for_response(self, output_before: str) -> str:
         """Poll TMUX pane for response until output stabilizes.
