@@ -10,6 +10,56 @@ from backchannel_bot.tmux_client import TmuxClient
 
 logger = logging.getLogger(__name__)
 
+# Discord message limit is 2000 chars; use 1900 for safety buffer
+MAX_CHUNK_SIZE = 1900
+
+
+def chunk_message(text: str, max_size: int = MAX_CHUNK_SIZE) -> list[str]:
+    """Split a message into chunks that fit within Discord's message limit.
+
+    Splits at newline boundaries when possible to preserve formatting.
+
+    Args:
+        text: The text to split into chunks.
+        max_size: Maximum size per chunk (default: 1900).
+
+    Returns:
+        List of text chunks, each under max_size characters.
+    """
+    if not text:
+        return []
+
+    if len(text) <= max_size:
+        return [text]
+
+    chunks: list[str] = []
+    remaining = text
+
+    while remaining:
+        if len(remaining) <= max_size:
+            chunks.append(remaining)
+            break
+
+        # Find a good split point within the max_size limit
+        chunk = remaining[:max_size]
+        split_pos = max_size
+
+        # Prefer splitting at newline boundaries
+        last_newline = chunk.rfind("\n")
+        if last_newline > 0:
+            # Split at the newline (keep newline with current chunk)
+            split_pos = last_newline + 1
+        else:
+            # No newline found, try splitting at last space
+            last_space = chunk.rfind(" ")
+            if last_space > 0:
+                split_pos = last_space + 1
+
+        chunks.append(remaining[:split_pos].rstrip())
+        remaining = remaining[split_pos:].lstrip()
+
+    return chunks
+
 
 class BackchannelBot(discord.Client):
     """Discord client for backchannel communication with TMUX sessions."""
@@ -220,18 +270,30 @@ class BackchannelBot(discord.Client):
         new_lines = after_lines[overlap_start:]
         return "\n".join(new_lines)
 
-    async def send_response(self, channel: discord.abc.Messageable, text: str) -> discord.Message:
-        """Send a response message to a channel.
+    async def send_response(
+        self, channel: discord.abc.Messageable, text: str
+    ) -> list[discord.Message]:
+        """Send a response message to a channel, chunking if necessary.
+
+        If the message exceeds Discord's limit, it will be split into multiple
+        messages sent sequentially.
 
         Args:
             channel: The channel or DM to send the response to.
             text: The text content to send.
 
         Returns:
-            The sent message object.
+            List of sent message objects.
         """
-        logger.debug("Sending response to channel %s", channel)
-        return await channel.send(text)
+        chunks = chunk_message(text)
+        logger.debug("Sending response to channel %s (%d chunks)", channel, len(chunks))
+
+        messages: list[discord.Message] = []
+        for chunk in chunks:
+            msg = await channel.send(chunk)
+            messages.append(msg)
+
+        return messages
 
     def run_bot(self) -> None:
         """Start the bot using the configured token."""
