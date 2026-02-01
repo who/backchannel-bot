@@ -350,6 +350,65 @@ class TestErrorHandling:
         ):
             Config()
 
+    def test_non_numeric_channel_id_raises_config_error(self) -> None:
+        """Non-numeric DISCORD_CHANNEL_ID raises ConfigurationError."""
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "DISCORD_BOT_TOKEN": "test-token",
+                    "TMUX_SESSION_NAME": "test-session",
+                    "DISCORD_CHANNEL_ID": "my-channel",
+                },
+            ),
+            pytest.raises(ConfigurationError, match="DISCORD_CHANNEL_ID must be a numeric"),
+        ):
+            Config()
+
+    def test_non_numeric_user_id_raises_config_error(self) -> None:
+        """Non-numeric DISCORD_ALLOWED_USER_ID raises ConfigurationError."""
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "DISCORD_BOT_TOKEN": "test-token",
+                    "TMUX_SESSION_NAME": "test-session",
+                    "DISCORD_ALLOWED_USER_ID": "username#1234",
+                },
+            ),
+            pytest.raises(ConfigurationError, match="DISCORD_ALLOWED_USER_ID must be a numeric"),
+        ):
+            Config()
+
+    def test_numeric_discord_ids_are_accepted(self) -> None:
+        """Numeric Discord IDs are accepted."""
+        with patch.dict(
+            os.environ,
+            {
+                "DISCORD_BOT_TOKEN": "test-token",
+                "TMUX_SESSION_NAME": "test-session",
+                "DISCORD_CHANNEL_ID": "123456789012345678",
+                "DISCORD_ALLOWED_USER_ID": "987654321098765432",
+            },
+        ):
+            config = Config()
+            assert config.discord_channel_id == "123456789012345678"
+            assert config.discord_allowed_user_id == "987654321098765432"
+
+    def test_unset_discord_ids_are_none(self) -> None:
+        """Unset Discord IDs default to None without error."""
+        with patch.dict(
+            os.environ,
+            {
+                "DISCORD_BOT_TOKEN": "test-token",
+                "TMUX_SESSION_NAME": "test-session",
+            },
+            clear=True,
+        ):
+            config = Config()
+            assert config.discord_channel_id is None
+            assert config.discord_allowed_user_id is None
+
     def test_tmux_not_installed_raises_error(self) -> None:
         """Missing tmux binary raises TmuxError."""
         client = TmuxClient(session_name="test")

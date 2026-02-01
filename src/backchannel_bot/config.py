@@ -5,7 +5,31 @@ from dataclasses import dataclass, field
 
 
 class ConfigurationError(Exception):
-    """Raised when required configuration is missing."""
+    """Raised when required configuration is missing or invalid."""
+
+
+def _validate_discord_id(env_var: str, value: str | None) -> str | None:
+    """Validate that a Discord ID is numeric.
+
+    Args:
+        env_var: Name of the environment variable (for error messages)
+        value: The value to validate
+
+    Returns:
+        The validated value (unchanged if valid, None if not set)
+
+    Raises:
+        ConfigurationError: If the value is set but not numeric
+    """
+    if value is None:
+        return None
+    if not value.isdigit():
+        raise ConfigurationError(
+            f"{env_var} must be a numeric Discord ID, not '{value}'. "
+            f"To get a Discord ID: Enable Developer Mode in Discord settings, "
+            f"then right-click the user/channel and select 'Copy ID'."
+        )
+    return value
 
 
 @dataclass
@@ -28,10 +52,14 @@ class Config:
     discord_bot_token: str = field(default_factory=lambda: _get_required("DISCORD_BOT_TOKEN"))
     tmux_session_name: str = field(default_factory=lambda: _get_required("TMUX_SESSION_NAME"))
     discord_channel_id: str | None = field(
-        default_factory=lambda: os.environ.get("DISCORD_CHANNEL_ID")
+        default_factory=lambda: _validate_discord_id(
+            "DISCORD_CHANNEL_ID", os.environ.get("DISCORD_CHANNEL_ID")
+        )
     )
     discord_allowed_user_id: str | None = field(
-        default_factory=lambda: os.environ.get("DISCORD_ALLOWED_USER_ID")
+        default_factory=lambda: _validate_discord_id(
+            "DISCORD_ALLOWED_USER_ID", os.environ.get("DISCORD_ALLOWED_USER_ID")
+        )
     )
     tmux_pane: int = field(default_factory=lambda: int(os.environ.get("TMUX_PANE", "0")))
     poll_interval_ms: int = field(
