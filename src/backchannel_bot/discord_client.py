@@ -1,5 +1,6 @@
 """Discord client module for backchannel-bot."""
 
+import asyncio
 import logging
 
 import discord
@@ -91,11 +92,84 @@ class BackchannelBot(discord.Client):
     async def _handle_passthrough(self, message: discord.Message) -> None:
         """Handle passthrough messages (sent directly to TMUX).
 
+        Sends the message to TMUX, waits for output, and relays
+        the new content back to Discord.
+
         Args:
             message: The Discord message to pass through to TMUX.
         """
         logger.debug("Passing through to TMUX: %s", message.content)
-        self.tmux_client.send_input(message.content)
+
+        # Capture output before sending input
+        output_before = self.tmux_client.capture_output()
+
+        # Send input to TMUX
+        if not self.tmux_client.send_input(message.content):
+            await self.send_response(message.channel, "❌ Failed to send input to TMUX")
+            return
+
+        # Wait briefly for output to appear
+        await asyncio.sleep(self.config.poll_interval_ms / 1000.0)
+
+        # Capture output after sending input
+        output_after = self.tmux_client.capture_output()
+
+        # Compute the diff - new content only
+        new_content = self._compute_output_diff(output_before, output_after)
+
+        # Send new content to Discord if there is any
+        if new_content:
+            await self.send_response(message.channel, new_content)
+        else:
+            logger.debug("No new TMUX output to relay")
+
+    def _compute_output_diff(self, before: str, after: str) -> str:
+        """Compute the new content in the TMUX output.
+
+        Args:
+            before: TMUX output captured before sending input.
+            after: TMUX output captured after sending input.
+
+        Returns:
+            The new lines that appeared in the output.
+        """
+        if not before:
+            return after
+
+        # Find where the new content starts
+        # The 'before' content should be a suffix of 'after' if nothing scrolled off
+        if after.startswith(before):
+            new_content = after[len(before) :].lstrip("\n")
+            return new_content
+
+        # If content scrolled, find the longest common suffix
+        before_lines = before.split("\n")
+        after_lines = after.split("\n")
+
+        # Find where the before content ends in after
+        # Look for the last few lines of 'before' appearing in 'after'
+        overlap_start = 0
+        for i in range(len(after_lines)):
+            # Check if remaining after_lines match the end of before_lines
+            after_suffix = after_lines[i:]
+            before_suffix_len = min(len(after_suffix), len(before_lines))
+            if before_suffix_len > 0:
+                before_suffix = before_lines[-before_suffix_len:]
+                if after_suffix[:before_suffix_len] == before_suffix:
+                    overlap_start = i + before_suffix_len
+                    break
+
+        # If no overlap found, return everything after the first occurrence
+        # of the last line of 'before'
+        if overlap_start == 0 and before_lines:
+            last_before_line = before_lines[-1]
+            for i, line in enumerate(after_lines):
+                if line == last_before_line:
+                    overlap_start = i + 1
+                    break
+
+        new_lines = after_lines[overlap_start:]
+        return "\n".join(new_lines)
 
     async def send_response(self, channel: discord.abc.Messageable, text: str) -> discord.Message:
         """Send a response message to a channel.
