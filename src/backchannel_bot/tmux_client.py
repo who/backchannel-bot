@@ -288,3 +288,45 @@ class TmuxClient:
         except subprocess.SubprocessError as e:
             logger.exception("Subprocess error while running raw tmux command")
             raise TmuxError(f"Failed to execute tmux command: {e}") from e
+
+    def run_claude_print(self, prompt: str, timeout: int = 300) -> str:
+        """Run Claude Code in print mode and return the response.
+
+        Executes `claude -p "prompt"` directly (not in tmux) to get a reliable
+        text response without TUI complications.
+
+        Args:
+            prompt: The prompt to send to Claude Code.
+            timeout: Maximum seconds to wait for response (default: 300).
+
+        Returns:
+            Claude's response text.
+
+        Raises:
+            TmuxError: If Claude Code is not installed or command fails.
+        """
+        logger.debug("Running Claude Code in print mode: %r", prompt[:100])
+        try:
+            result = subprocess.run(
+                ["claude", "-p", prompt],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+            if result.returncode == 0:
+                output = result.stdout.rstrip()
+                logger.debug("Claude print mode succeeded, output: %d chars", len(output))
+                return output
+            else:
+                error_msg = result.stderr.strip() or "command failed"
+                logger.error("Claude print mode failed: %s", error_msg)
+                raise TmuxError(f"Claude command failed: {error_msg}")
+        except FileNotFoundError as e:
+            logger.exception("claude command not found")
+            raise TmuxError("Claude Code is not installed") from e
+        except subprocess.TimeoutExpired as e:
+            logger.exception("Claude command timed out after %d seconds", timeout)
+            raise TmuxError(f"Claude command timed out after {timeout} seconds") from e
+        except subprocess.SubprocessError as e:
+            logger.exception("Subprocess error while running Claude")
+            raise TmuxError(f"Failed to execute claude command: {e}") from e

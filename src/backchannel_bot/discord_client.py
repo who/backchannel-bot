@@ -247,47 +247,49 @@ class BackchannelBot(discord.Client):
             await self.send_response(message.channel, f"❌ TMUX error: {e}")
 
     async def _handle_passthrough(self, message: discord.Message) -> None:
-        """Handle passthrough messages (sent directly to TMUX).
+        """Handle passthrough messages by running Claude Code in print mode.
 
-        Sends the message to TMUX, polls for output until stable,
-        and relays the new content back to Discord. Shows typing indicator
-        while waiting for response.
+        Executes `claude -p` with the message content and relays the response
+        back to Discord. Shows typing indicator while waiting for response.
 
         Args:
-            message: The Discord message to pass through to TMUX.
+            message: The Discord message to send to Claude Code.
         """
-        logger.debug("Passing through to TMUX: %s", message.content)
+        logger.debug("Running Claude Code with prompt: %s", message.content)
 
         try:
-            # Capture output before sending input
-            output_before = self.tmux_client.capture_output()
-
-            # Send input to TMUX
-            if not self.tmux_client.send_input(message.content):
-                await self.send_response(
-                    message.channel,
-                    "❌ Failed to send input to TMUX. The session may not exist.",
-                )
-                return
-
-            # Poll for response with typing indicator shown
+            # Run Claude in print mode with typing indicator
             # Wrap typing indicator in try/except to handle Discord API errors
             try:
                 async with message.channel.typing():
-                    new_content = await self._poll_for_response(output_before)
+                    response = await self._run_claude_async(message.content)
             except discord.DiscordException:
-                # Typing indicator failed, but we can still poll without it
-                logger.warning("Failed to show typing indicator, polling without it")
-                new_content = await self._poll_for_response(output_before)
+                # Typing indicator failed, but we can still run without it
+                logger.warning("Failed to show typing indicator, running without it")
+                response = await self._run_claude_async(message.content)
 
-            # Send new content to Discord if there is any
-            if new_content:
-                await self.send_response(message.channel, new_content)
+            # Send response to Discord if there is any
+            if response:
+                await self.send_response(message.channel, response)
             else:
-                logger.debug("No new TMUX output to relay")
+                logger.debug("No response from Claude")
         except TmuxError as e:
-            logger.exception("TMUX error while handling passthrough message")
-            await self.send_response(message.channel, f"❌ TMUX error: {e}")
+            logger.exception("Error while running Claude Code")
+            await self.send_response(message.channel, f"❌ Claude error: {e}")
+
+    async def _run_claude_async(self, prompt: str) -> str:
+        """Run Claude Code in print mode asynchronously.
+
+        Args:
+            prompt: The prompt to send to Claude Code.
+
+        Returns:
+            Claude's response text.
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None, self.tmux_client.run_claude_print, prompt
+        )
 
     async def _poll_for_response(self, output_before: str) -> str:
         """Poll TMUX pane for response until output stabilizes.
