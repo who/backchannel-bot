@@ -67,23 +67,25 @@ claude
 
 ### 3. Configure Environment Variables
 
-Create a `.env` file or export these variables:
+Copy the sample environment file and edit it with your values:
 
 ```bash
-# Required
-export DISCORD_BOT_TOKEN="your_bot_token_here"
-export TMUX_SESSION_NAME="claude-session"
-
-# Optional (but recommended for security)
-export DISCORD_CHANNEL_ID="123456789"        # Restrict to one channel
-export DISCORD_ALLOWED_USER_ID="your_user_id" # Restrict to one user
-
-# Optional tuning
-export TMUX_PANE="0"                # Pane number (default: 0)
-export POLL_INTERVAL_MS="750"       # How often to check for output (default: 750)
-export RESPONSE_STABLE_SECONDS="2"  # Wait time before considering response complete (default: 2)
-export OUTPUT_HISTORY_LINES="200"   # Lines to capture from TMUX (default: 200)
+cp .env.sample .env
+# Edit .env with your Discord bot token and TMUX session name
 ```
+
+The `.env` file supports these variables:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DISCORD_BOT_TOKEN` | Yes | Your Discord bot token |
+| `TMUX_SESSION_NAME` | Yes | Name of your TMUX session (e.g., `claude-session`) |
+| `DISCORD_CHANNEL_ID` | No | Restrict bot to one channel (recommended) |
+| `DISCORD_ALLOWED_USER_ID` | No | Restrict bot to one user (recommended) |
+| `TMUX_PANE` | No | Pane number (default: `0`) |
+| `POLL_INTERVAL_MS` | No | How often to check for output (default: `750`) |
+| `RESPONSE_STABLE_SECONDS` | No | Wait time before considering response complete (default: `2`) |
+| `OUTPUT_HISTORY_LINES` | No | Lines to capture from TMUX (default: `200`) |
 
 ### 4. Run the Bot
 

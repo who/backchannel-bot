@@ -3,6 +3,8 @@
 import logging
 import sys
 
+from dotenv import load_dotenv
+
 from backchannel_bot.config import Config, ConfigurationError
 from backchannel_bot.discord_client import BackchannelBot
 from backchannel_bot.logging_config import setup_logging
@@ -19,6 +21,9 @@ def main() -> None:
 
     Exits with code 1 if configuration is invalid or TMUX session doesn't exist.
     """
+    # Load environment variables from .env file
+    load_dotenv()
+
     # Set up logging first so we can log any errors
     setup_logging()
 
