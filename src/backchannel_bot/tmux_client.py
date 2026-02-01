@@ -9,15 +9,17 @@ logger = logging.getLogger(__name__)
 class TmuxClient:
     """Client for interacting with TMUX sessions."""
 
-    def __init__(self, session_name: str, pane: int = 0) -> None:
+    def __init__(self, session_name: str, pane: int = 0, output_history_lines: int = 200) -> None:
         """Initialize the TMUX client.
 
         Args:
             session_name: Name of the TMUX session to interact with.
             pane: Pane number within the session (default: 0).
+            output_history_lines: Number of lines to capture from pane (default: 200).
         """
         self.session_name = session_name
         self.pane = pane
+        self.output_history_lines = output_history_lines
 
     def check_session(self) -> bool:
         """Check if the configured TMUX session exists.
@@ -71,3 +73,40 @@ class TmuxClient:
         except FileNotFoundError:
             logger.error("tmux command not found. Please install tmux.")
             return False
+
+    def capture_output(self) -> str:
+        """Capture output from the TMUX pane.
+
+        Returns:
+            String containing the captured pane content, with trailing empty lines stripped.
+        """
+        target = f"{self.session_name}:{self.pane}"
+        logger.debug(
+            "Capturing output from TMUX target '%s' (last %d lines)",
+            target,
+            self.output_history_lines,
+        )
+        try:
+            result = subprocess.run(
+                [
+                    "tmux",
+                    "capture-pane",
+                    "-t",
+                    target,
+                    "-p",
+                    "-S",
+                    f"-{self.output_history_lines}",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                output = result.stdout.rstrip()
+                logger.debug("Captured %d characters from TMUX", len(output))
+                return output
+            else:
+                logger.error("Failed to capture TMUX output: %s", result.stderr.strip())
+                return ""
+        except FileNotFoundError:
+            logger.error("tmux command not found. Please install tmux.")
+            return ""
