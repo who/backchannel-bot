@@ -84,7 +84,7 @@ Copy the sample environment file and edit it with your values:
 
 ```bash
 cp .env.sample .env
-# Edit .env with your Discord bot token and TMUX session name
+# Edit .env with your Discord bot token
 ```
 
 The `.env` file supports these variables:
