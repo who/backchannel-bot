@@ -137,7 +137,33 @@ class BackchannelBot(discord.Client):
             message: The Discord message containing a command.
         """
         logger.debug("Routing to command handler: %s", message.content)
-        # TODO: Implement command handling (bcb-sb0 and related)
+        command = message.content.split()[0].lower()
+
+        if command == "!status":
+            await self._handle_status_command(message)
+        else:
+            logger.debug("Unknown command: %s", command)
+
+    async def _handle_status_command(self, message: discord.Message) -> None:
+        """Handle the !status command to report TMUX session health.
+
+        Args:
+            message: The Discord message containing the !status command.
+        """
+        logger.debug("Handling !status command")
+        status = self.tmux_client.get_session_status()
+
+        session_name = status["session_name"]
+        exists = status.get("exists", False)
+
+        if not exists:
+            response = f"**{session_name}**: does not exist"
+        else:
+            attached = status.get("attached", False)
+            state = "attached" if attached else "detached"
+            response = f"**{session_name}**: exists, {state}"
+
+        await self.send_response(message.channel, response)
 
     async def _handle_passthrough(self, message: discord.Message) -> None:
         """Handle passthrough messages (sent directly to TMUX).

@@ -74,6 +74,49 @@ class TmuxClient:
             logger.error("tmux command not found. Please install tmux.")
             return False
 
+    def get_session_status(self) -> dict[str, str | bool]:
+        """Get the status of the configured TMUX session.
+
+        Returns:
+            Dictionary containing session status info:
+                - exists: bool - Whether the session exists
+                - attached: bool | None - Whether session is attached (None if doesn't exist)
+                - session_name: str - The session name
+        """
+        status: dict[str, str | bool] = {
+            "session_name": self.session_name,
+            "exists": False,
+        }
+
+        try:
+            # Check if session exists using list-sessions
+            result = subprocess.run(
+                ["tmux", "list-sessions", "-F", "#{session_name}:#{session_attached}"],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                logger.debug("No tmux sessions found or tmux error: %s", result.stderr.strip())
+                return status
+
+            # Parse output to find our session
+            for line in result.stdout.strip().split("\n"):
+                if not line:
+                    continue
+                parts = line.split(":")
+                if len(parts) >= 2 and parts[0] == self.session_name:
+                    status["exists"] = True
+                    status["attached"] = parts[1] == "1"
+                    logger.debug(
+                        "Session '%s' status: attached=%s", self.session_name, status["attached"]
+                    )
+                    break
+
+        except FileNotFoundError:
+            logger.error("tmux command not found. Please install tmux.")
+
+        return status
+
     def capture_output(self) -> str:
         """Capture output from the TMUX pane.
 
