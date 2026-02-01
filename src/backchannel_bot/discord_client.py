@@ -143,7 +143,8 @@ class BackchannelBot(discord.Client):
         """Handle passthrough messages (sent directly to TMUX).
 
         Sends the message to TMUX, polls for output until stable,
-        and relays the new content back to Discord.
+        and relays the new content back to Discord. Shows typing indicator
+        while waiting for response.
 
         Args:
             message: The Discord message to pass through to TMUX.
@@ -158,8 +159,9 @@ class BackchannelBot(discord.Client):
             await self.send_response(message.channel, "❌ Failed to send input to TMUX")
             return
 
-        # Poll for response using configured intervals
-        new_content = await self._poll_for_response(output_before)
+        # Poll for response with typing indicator shown
+        async with message.channel.typing():
+            new_content = await self._poll_for_response(output_before)
 
         # Send new content to Discord if there is any
         if new_content:
