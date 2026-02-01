@@ -287,9 +287,7 @@ class BackchannelBot(discord.Client):
             Claude's response text.
         """
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
-            None, self.tmux_client.run_claude_print, prompt
-        )
+        return await loop.run_in_executor(None, self.tmux_client.run_claude_print, prompt)
 
     async def _poll_for_response(self, output_before: str) -> str:
         """Poll TMUX pane for response until output stabilizes.
