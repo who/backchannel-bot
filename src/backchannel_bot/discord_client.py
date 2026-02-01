@@ -31,6 +31,45 @@ class BackchannelBot(discord.Client):
         """Handle disconnection from Discord."""
         logger.warning("Disconnected from Discord")
 
+    async def on_message(self, message: discord.Message) -> None:
+        """Handle incoming messages.
+
+        Filters messages based on configured channel and user restrictions.
+
+        Args:
+            message: The Discord message received.
+        """
+        # Ignore messages from the bot itself
+        if message.author == self.user:
+            return
+
+        # Check channel restriction if configured
+        if (
+            self.config.discord_channel_id is not None
+            and str(message.channel.id) != self.config.discord_channel_id
+        ):
+            logger.debug(
+                "Ignoring: wrong channel (got %s, expected %s)",
+                message.channel.id,
+                self.config.discord_channel_id,
+            )
+            return
+
+        # Check user restriction if configured
+        if (
+            self.config.discord_allowed_user_id is not None
+            and str(message.author.id) != self.config.discord_allowed_user_id
+        ):
+            logger.debug(
+                "Ignoring: wrong user (got %s, expected %s)",
+                message.author.id,
+                self.config.discord_allowed_user_id,
+            )
+            return
+
+        logger.info("Processing message from %s: %s", message.author, message.content)
+        # TODO: Forward to TMUX session (implemented in separate issue)
+
     def run_bot(self) -> None:
         """Start the bot using the configured token."""
         self.run(self.config.discord_bot_token)
