@@ -168,6 +168,8 @@ class BackchannelBot(discord.Client):
             await self._handle_status_command(message)
         elif command == "!raw":
             await self._handle_raw_command(message)
+        elif command == "!interrupt":
+            await self._handle_interrupt_command(message)
         else:
             logger.debug("Unknown command: %s", command)
 
@@ -223,6 +225,25 @@ class BackchannelBot(discord.Client):
                 await self.send_response(message.channel, "(no output)")
         except TmuxError as e:
             logger.exception("TMUX error while handling !raw command")
+            await self.send_response(message.channel, f"❌ TMUX error: {e}")
+
+    async def _handle_interrupt_command(self, message: discord.Message) -> None:
+        """Handle the !interrupt command to send Ctrl+C to the TMUX pane.
+
+        Args:
+            message: The Discord message containing the !interrupt command.
+        """
+        logger.debug("Handling !interrupt command")
+        try:
+            if self.tmux_client.send_interrupt():
+                await self.send_response(message.channel, "✅ Sent Ctrl+C to TMUX pane")
+            else:
+                await self.send_response(
+                    message.channel,
+                    "❌ Failed to send interrupt. The TMUX session may not exist.",
+                )
+        except TmuxError as e:
+            logger.exception("TMUX error while handling !interrupt command")
             await self.send_response(message.channel, f"❌ TMUX error: {e}")
 
     async def _handle_passthrough(self, message: discord.Message) -> None:

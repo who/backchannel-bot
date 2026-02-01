@@ -400,6 +400,127 @@ class TestErrorHandling:
 # =============================================================================
 
 
+# =============================================================================
+# Test: !interrupt command sends Ctrl+C to TMUX
+# =============================================================================
+
+
+class TestInterruptCommand:
+    """Tests for !interrupt command functionality."""
+
+    def test_send_interrupt_uses_send_keys_with_ctrl_c(self) -> None:
+        """TmuxClient.send_interrupt uses tmux send-keys with C-c."""
+        client = TmuxClient(session_name="test-session", pane=0)
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            result = client.send_interrupt()
+            assert result is True
+            mock_run.assert_called_once()
+            call_args = mock_run.call_args[0][0]
+            assert call_args[0] == "tmux"
+            assert call_args[1] == "send-keys"
+            assert "-t" in call_args
+            assert "test-session:0" in call_args
+            assert "C-c" in call_args
+
+    def test_send_interrupt_returns_false_on_failure(self) -> None:
+        """TmuxClient.send_interrupt returns False when command fails."""
+        client = TmuxClient(session_name="test-session", pane=0)
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stderr="session not found")
+            result = client.send_interrupt()
+            assert result is False
+
+    def test_send_interrupt_raises_on_missing_tmux(self) -> None:
+        """TmuxClient.send_interrupt raises TmuxError when tmux not installed."""
+        client = TmuxClient(session_name="test-session", pane=0)
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = FileNotFoundError("tmux not found")
+            with pytest.raises(TmuxError, match="tmux is not installed"):
+                client.send_interrupt()
+
+    @pytest.mark.asyncio
+    async def test_interrupt_command_sends_confirmation(self) -> None:
+        """!interrupt command sends confirmation message to Discord."""
+        with patch.dict(
+            os.environ,
+            {
+                "DISCORD_BOT_TOKEN": "test-token",
+                "TMUX_SESSION_NAME": "test-session",
+            },
+        ):
+            config = Config()
+            tmux_client = MagicMock(spec=TmuxClient)
+            bot = BackchannelBot(config=config, tmux_client=tmux_client)
+
+            tmux_client.send_interrupt.return_value = True
+
+            message = MagicMock()
+            message.author.bot = False
+            message.content = "!interrupt"
+            message.channel.send = AsyncMock()
+
+            await bot._handle_interrupt_command(message)
+
+            # Verify confirmation was sent
+            call_args = message.channel.send.call_args[0][0]
+            assert "Sent Ctrl+C" in call_args
+
+    @pytest.mark.asyncio
+    async def test_interrupt_command_reports_failure(self) -> None:
+        """!interrupt command reports failure when tmux command fails."""
+        with patch.dict(
+            os.environ,
+            {
+                "DISCORD_BOT_TOKEN": "test-token",
+                "TMUX_SESSION_NAME": "test-session",
+            },
+        ):
+            config = Config()
+            tmux_client = MagicMock(spec=TmuxClient)
+            bot = BackchannelBot(config=config, tmux_client=tmux_client)
+
+            tmux_client.send_interrupt.return_value = False
+
+            message = MagicMock()
+            message.author.bot = False
+            message.content = "!interrupt"
+            message.channel.send = AsyncMock()
+
+            await bot._handle_interrupt_command(message)
+
+            # Verify error was sent
+            call_args = message.channel.send.call_args[0][0]
+            assert "Failed to send interrupt" in call_args
+
+    @pytest.mark.asyncio
+    async def test_interrupt_command_handles_tmux_error(self) -> None:
+        """!interrupt command handles TmuxError gracefully."""
+        with patch.dict(
+            os.environ,
+            {
+                "DISCORD_BOT_TOKEN": "test-token",
+                "TMUX_SESSION_NAME": "test-session",
+            },
+        ):
+            config = Config()
+            tmux_client = MagicMock(spec=TmuxClient)
+            bot = BackchannelBot(config=config, tmux_client=tmux_client)
+
+            tmux_client.send_interrupt.side_effect = TmuxError("session died")
+
+            message = MagicMock()
+            message.author.bot = False
+            message.content = "!interrupt"
+            message.channel.send = AsyncMock()
+
+            await bot._handle_interrupt_command(message)
+
+            # Verify error message was sent
+            call_args = message.channel.send.call_args[0][0]
+            assert "TMUX error" in call_args
+
+
 class TestTmuxSessionFailure:
     """Tests for handling TMUX session failures."""
 

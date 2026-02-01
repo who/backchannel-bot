@@ -222,6 +222,37 @@ class TmuxClient:
             logger.exception("Subprocess error while capturing TMUX output")
             raise TmuxError(f"Failed to execute tmux command: {e}") from e
 
+    def send_interrupt(self) -> bool:
+        """Send Ctrl+C (interrupt signal) to the TMUX pane.
+
+        Returns:
+            True if the interrupt was sent successfully, False otherwise.
+
+        Raises:
+            TmuxError: If tmux is not installed or subprocess fails unexpectedly.
+        """
+        target = f"{self.session_name}:{self.pane}"
+        logger.debug("Sending interrupt (Ctrl+C) to TMUX target '%s'", target)
+        try:
+            result = subprocess.run(
+                ["tmux", "send-keys", "-t", target, "C-c"],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                logger.debug("Successfully sent interrupt to TMUX")
+                return True
+            else:
+                error_msg = result.stderr.strip() or "unknown error"
+                logger.error("Failed to send interrupt to TMUX: %s", error_msg)
+                return False
+        except FileNotFoundError as e:
+            logger.exception("tmux command not found")
+            raise TmuxError("tmux is not installed") from e
+        except subprocess.SubprocessError as e:
+            logger.exception("Subprocess error while sending interrupt to TMUX")
+            raise TmuxError(f"Failed to execute tmux command: {e}") from e
+
     def run_raw_command(self, command: str) -> str:
         """Run an arbitrary tmux command and return its output.
 
