@@ -6,7 +6,7 @@ import logging
 import discord
 
 from backchannel_bot.config import Config
-from backchannel_bot.tmux_client import TmuxClient
+from backchannel_bot.tmux_client import TmuxClient, TmuxError
 
 logger = logging.getLogger(__name__)
 
@@ -85,10 +85,23 @@ class BackchannelBot(discord.Client):
         """Handle disconnection from Discord."""
         logger.warning("Disconnected from Discord")
 
+    async def on_error(self, event: str, *args: object, **kwargs: object) -> None:
+        """Handle errors in event handlers.
+
+        Logs the error with full traceback instead of crashing.
+
+        Args:
+            event: Name of the event that raised the exception.
+            *args: Positional arguments passed to the event handler.
+            **kwargs: Keyword arguments passed to the event handler.
+        """
+        logger.exception("Error in event handler '%s'", event)
+
     async def on_message(self, message: discord.Message) -> None:
         """Handle incoming messages.
 
         Filters messages based on configured channel and user restrictions.
+        Catches all exceptions to prevent bot crashes on transient failures.
 
         Args:
             message: The Discord message received.
@@ -124,11 +137,23 @@ class BackchannelBot(discord.Client):
 
         logger.info("Processing message from %s: %s", message.author, message.content)
 
-        # Route messages: commands (!) vs passthrough (everything else)
-        if message.content.startswith("!"):
-            await self._handle_command(message)
-        else:
-            await self._handle_passthrough(message)
+        try:
+            # Route messages: commands (!) vs passthrough (everything else)
+            if message.content.startswith("!"):
+                await self._handle_command(message)
+            else:
+                await self._handle_passthrough(message)
+        except Exception:
+            # Catch any unexpected errors to prevent bot crash
+            logger.exception("Unexpected error while processing message")
+            try:
+                await self.send_response(
+                    message.channel,
+                    "❌ An unexpected error occurred. Please try again.",
+                )
+            except Exception:
+                # If we can't even send the error message, just log it
+                logger.exception("Failed to send error message to Discord")
 
     async def _handle_command(self, message: discord.Message) -> None:
         """Handle command messages (starting with !).
@@ -151,19 +176,23 @@ class BackchannelBot(discord.Client):
             message: The Discord message containing the !status command.
         """
         logger.debug("Handling !status command")
-        status = self.tmux_client.get_session_status()
+        try:
+            status = self.tmux_client.get_session_status()
 
-        session_name = status["session_name"]
-        exists = status.get("exists", False)
+            session_name = status["session_name"]
+            exists = status.get("exists", False)
 
-        if not exists:
-            response = f"**{session_name}**: does not exist"
-        else:
-            attached = status.get("attached", False)
-            state = "attached" if attached else "detached"
-            response = f"**{session_name}**: exists, {state}"
+            if not exists:
+                response = f"**{session_name}**: does not exist"
+            else:
+                attached = status.get("attached", False)
+                state = "attached" if attached else "detached"
+                response = f"**{session_name}**: exists, {state}"
 
-        await self.send_response(message.channel, response)
+            await self.send_response(message.channel, response)
+        except TmuxError as e:
+            logger.exception("TMUX error while handling !status command")
+            await self.send_response(message.channel, f"❌ TMUX error: {e}")
 
     async def _handle_passthrough(self, message: discord.Message) -> None:
         """Handle passthrough messages (sent directly to TMUX).
@@ -177,23 +206,36 @@ class BackchannelBot(discord.Client):
         """
         logger.debug("Passing through to TMUX: %s", message.content)
 
-        # Capture output before sending input
-        output_before = self.tmux_client.capture_output()
+        try:
+            # Capture output before sending input
+            output_before = self.tmux_client.capture_output()
 
-        # Send input to TMUX
-        if not self.tmux_client.send_input(message.content):
-            await self.send_response(message.channel, "❌ Failed to send input to TMUX")
-            return
+            # Send input to TMUX
+            if not self.tmux_client.send_input(message.content):
+                await self.send_response(
+                    message.channel,
+                    "❌ Failed to send input to TMUX. The session may not exist.",
+                )
+                return
 
-        # Poll for response with typing indicator shown
-        async with message.channel.typing():
-            new_content = await self._poll_for_response(output_before)
+            # Poll for response with typing indicator shown
+            # Wrap typing indicator in try/except to handle Discord API errors
+            try:
+                async with message.channel.typing():
+                    new_content = await self._poll_for_response(output_before)
+            except discord.DiscordException:
+                # Typing indicator failed, but we can still poll without it
+                logger.warning("Failed to show typing indicator, polling without it")
+                new_content = await self._poll_for_response(output_before)
 
-        # Send new content to Discord if there is any
-        if new_content:
-            await self.send_response(message.channel, new_content)
-        else:
-            logger.debug("No new TMUX output to relay")
+            # Send new content to Discord if there is any
+            if new_content:
+                await self.send_response(message.channel, new_content)
+            else:
+                logger.debug("No new TMUX output to relay")
+        except TmuxError as e:
+            logger.exception("TMUX error while handling passthrough message")
+            await self.send_response(message.channel, f"❌ TMUX error: {e}")
 
     async def _poll_for_response(self, output_before: str) -> str:
         """Poll TMUX pane for response until output stabilizes.
@@ -304,22 +346,31 @@ class BackchannelBot(discord.Client):
         """Send a response message to a channel, chunking if necessary.
 
         If the message exceeds Discord's limit, it will be split into multiple
-        messages sent sequentially.
+        messages sent sequentially. Handles Discord API errors gracefully without
+        crashing the bot.
 
         Args:
             channel: The channel or DM to send the response to.
             text: The text content to send.
 
         Returns:
-            List of sent message objects.
+            List of sent message objects (may be partial if some sends failed).
         """
         chunks = chunk_message(text)
         logger.debug("Sending response to channel %s (%d chunks)", channel, len(chunks))
 
         messages: list[discord.Message] = []
         for chunk in chunks:
-            msg = await channel.send(chunk)
-            messages.append(msg)
+            try:
+                msg = await channel.send(chunk)
+                messages.append(msg)
+            except discord.HTTPException as e:
+                logger.exception("Failed to send message to Discord: HTTP %s", e.status)
+            except discord.Forbidden:
+                logger.exception("Bot lacks permission to send messages in this channel")
+                break
+            except discord.DiscordException as e:
+                logger.exception("Discord error while sending message: %s", e)
 
         return messages
 

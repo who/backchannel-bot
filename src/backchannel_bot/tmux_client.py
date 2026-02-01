@@ -6,6 +6,13 @@ import subprocess
 
 logger = logging.getLogger(__name__)
 
+
+class TmuxError(Exception):
+    """Exception raised for TMUX-related errors."""
+
+    pass
+
+
 # Regex to match ANSI escape sequences
 # Matches: ESC[ followed by any number of parameters and ending with a letter
 # Also matches other escape sequences like ESC]...BEL for terminal titles
@@ -58,6 +65,9 @@ class TmuxClient:
 
         Returns:
             True if the session exists, False otherwise.
+
+        Raises:
+            TmuxError: If tmux is not installed.
         """
         try:
             result = subprocess.run(
@@ -75,9 +85,9 @@ class TmuxClient:
                     self.session_name,
                 )
                 return False
-        except FileNotFoundError:
-            logger.error("tmux command not found. Please install tmux.")
-            return False
+        except FileNotFoundError as e:
+            logger.exception("tmux command not found")
+            raise TmuxError("tmux is not installed") from e
 
     def send_input(self, text: str) -> bool:
         """Send input text to the TMUX pane.
@@ -87,6 +97,9 @@ class TmuxClient:
 
         Returns:
             True if the input was sent successfully, False otherwise.
+
+        Raises:
+            TmuxError: If tmux is not installed or subprocess fails unexpectedly.
         """
         target = f"{self.session_name}:{self.pane}"
         logger.debug("Sending input to TMUX target '%s': %r", target, text)
@@ -100,11 +113,15 @@ class TmuxClient:
                 logger.debug("Successfully sent input to TMUX")
                 return True
             else:
-                logger.error("Failed to send input to TMUX: %s", result.stderr.strip())
+                error_msg = result.stderr.strip() or "unknown error"
+                logger.error("Failed to send input to TMUX: %s", error_msg)
                 return False
-        except FileNotFoundError:
-            logger.error("tmux command not found. Please install tmux.")
-            return False
+        except FileNotFoundError as e:
+            logger.exception("tmux command not found")
+            raise TmuxError("tmux is not installed") from e
+        except subprocess.SubprocessError as e:
+            logger.exception("Subprocess error while sending input to TMUX")
+            raise TmuxError(f"Failed to execute tmux command: {e}") from e
 
     def get_session_status(self) -> dict[str, str | bool]:
         """Get the status of the configured TMUX session.
@@ -114,6 +131,9 @@ class TmuxClient:
                 - exists: bool - Whether the session exists
                 - attached: bool | None - Whether session is attached (None if doesn't exist)
                 - session_name: str - The session name
+
+        Raises:
+            TmuxError: If tmux is not installed or subprocess fails unexpectedly.
         """
         status: dict[str, str | bool] = {
             "session_name": self.session_name,
@@ -144,8 +164,12 @@ class TmuxClient:
                     )
                     break
 
-        except FileNotFoundError:
-            logger.error("tmux command not found. Please install tmux.")
+        except FileNotFoundError as e:
+            logger.exception("tmux command not found")
+            raise TmuxError("tmux is not installed") from e
+        except subprocess.SubprocessError as e:
+            logger.exception("Subprocess error while getting session status")
+            raise TmuxError(f"Failed to execute tmux command: {e}") from e
 
         return status
 
@@ -154,6 +178,9 @@ class TmuxClient:
 
         Returns:
             String containing the captured pane content, with trailing empty lines stripped.
+
+        Raises:
+            TmuxError: If tmux is not installed, session doesn't exist, or subprocess fails.
         """
         target = f"{self.session_name}:{self.pane}"
         logger.debug(
@@ -185,8 +212,12 @@ class TmuxClient:
                 )
                 return output
             else:
-                logger.error("Failed to capture TMUX output: %s", result.stderr.strip())
-                return ""
-        except FileNotFoundError:
-            logger.error("tmux command not found. Please install tmux.")
-            return ""
+                error_msg = result.stderr.strip() or "unknown error"
+                logger.error("Failed to capture TMUX output: %s", error_msg)
+                raise TmuxError(f"Failed to capture output: {error_msg}")
+        except FileNotFoundError as e:
+            logger.exception("tmux command not found")
+            raise TmuxError("tmux is not installed") from e
+        except subprocess.SubprocessError as e:
+            logger.exception("Subprocess error while capturing TMUX output")
+            raise TmuxError(f"Failed to execute tmux command: {e}") from e
