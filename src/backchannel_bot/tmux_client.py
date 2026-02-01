@@ -1,9 +1,41 @@
 """TMUX client module for backchannel-bot."""
 
 import logging
+import re
 import subprocess
 
 logger = logging.getLogger(__name__)
+
+# Regex to match ANSI escape sequences
+# Matches: ESC[ followed by any number of parameters and ending with a letter
+# Also matches other escape sequences like ESC]...BEL for terminal titles
+ANSI_ESCAPE_PATTERN = re.compile(
+    r"\x1b"  # ESC character
+    r"(?:"
+    r"\[[0-9;?]*[A-Za-z]"  # CSI sequences: ESC[...m, ESC[...H, etc.
+    r"|\][^\x07]*\x07"  # OSC sequences: ESC]...BEL (terminal titles)
+    r"|[PX^_][^\x1b]*\x1b\\"  # DCS/SOS/PM/APC sequences
+    r"|[NO]."  # SS2/SS3 sequences
+    r"|[=>]"  # Other simple sequences
+    r")"
+)
+
+
+def strip_ansi(text: str) -> str:
+    """Strip ANSI escape codes from text.
+
+    Removes terminal escape sequences including:
+    - Color codes (ESC[32m, ESC[0m, etc.)
+    - Cursor control codes (ESC[H, ESC[2J, etc.)
+    - Terminal title sequences (ESC]...BEL)
+
+    Args:
+        text: Text potentially containing ANSI escape codes.
+
+    Returns:
+        Text with all ANSI escape codes removed.
+    """
+    return ANSI_ESCAPE_PATTERN.sub("", text)
 
 
 class TmuxClient:
@@ -144,8 +176,13 @@ class TmuxClient:
                 text=True,
             )
             if result.returncode == 0:
-                output = result.stdout.rstrip()
-                logger.debug("Captured %d characters from TMUX", len(output))
+                raw_output = result.stdout.rstrip()
+                output = strip_ansi(raw_output)
+                logger.debug(
+                    "Captured %d characters from TMUX (%d after ANSI strip)",
+                    len(raw_output),
+                    len(output),
+                )
                 return output
             else:
                 logger.error("Failed to capture TMUX output: %s", result.stderr.strip())
