@@ -69,7 +69,30 @@ class BackchannelBot(discord.Client):
             return
 
         logger.info("Processing message from %s: %s", message.author, message.content)
-        # TODO: Forward to TMUX session (implemented in separate issue)
+
+        # Route messages: commands (!) vs passthrough (everything else)
+        if message.content.startswith("!"):
+            await self._handle_command(message)
+        else:
+            await self._handle_passthrough(message)
+
+    async def _handle_command(self, message: discord.Message) -> None:
+        """Handle command messages (starting with !).
+
+        Args:
+            message: The Discord message containing a command.
+        """
+        logger.debug("Routing to command handler: %s", message.content)
+        # TODO: Implement command handling (bcb-sb0 and related)
+
+    async def _handle_passthrough(self, message: discord.Message) -> None:
+        """Handle passthrough messages (sent directly to TMUX).
+
+        Args:
+            message: The Discord message to pass through to TMUX.
+        """
+        logger.debug("Passing through to TMUX: %s", message.content)
+        # TODO: Forward to TMUX session via TmuxClient.send_input (bcb-bjf)
 
     async def send_response(self, channel: discord.abc.Messageable, text: str) -> discord.Message:
         """Send a response message to a channel.
