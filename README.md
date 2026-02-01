@@ -49,6 +49,31 @@ The bot runs on the same machine as Claude Code CLI. No SSH, no VPN—just local
 2. **Usage:** Send a message in Discord → Bot runs `claude -p` → Claude responds → Bot sends response back to Discord
 3. **Session Management (optional):** Start a TMUX session to use `!status`, `!interrupt`, and `!raw` commands
 
+### Typical Workflow: Continue From Where You Left Off
+
+The core use case is picking up a Claude session remotely:
+
+1. **Start a Claude session on your dev machine:**
+   ```bash
+   cd /path/to/your/project
+   claude
+   # Work with Claude interactively...
+   ```
+
+2. **Walk away** — leave Claude running or close the terminal
+
+3. **Start the bot from the same directory:**
+   ```bash
+   cd /path/to/your/project  # Same directory as step 1!
+   uv run python -m backchannel_bot.main
+   ```
+
+4. **Continue via Discord** — messages you send in Discord pick up the same conversation
+
+**Why it works:** By default, `CLAUDE_SESSION_MODE=continue` uses `claude -p --continue`, which continues the most recent Claude session in the current working directory. Since you start the bot from the same directory as your original session, it automatically connects to that conversation.
+
+**Important:** The bot must be started from the same directory where you ran your original Claude session.
+
 ## Setup
 
 ### 1. Create a Discord Bot
