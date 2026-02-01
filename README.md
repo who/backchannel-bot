@@ -1,14 +1,14 @@
 # backchannel-bot
 
-A hacky discord back channel communication from discord to your Claude tmux session
+A hacky Discord back channel for remote communication with Claude Code CLI
 
 ## Overview
 
-**backchannel-bot** is a lightweight Discord bot that bridges Discord chat with an active Claude CLI session running inside TMUX on your local machine. This enables remote interaction with Claude from anywhere via Discord—from your phone, another computer, wherever—treating the bot as a transparent relay layer between Discord and your terminal.
+**backchannel-bot** is a lightweight Discord bot that bridges Discord chat with Claude Code CLI on your local machine. This enables remote interaction with Claude from anywhere via Discord—from your phone, another computer, wherever—treating the bot as a transparent relay layer between Discord and Claude.
 
 > **🚨 SECURITY WARNING 🚨**
 >
-> This is alpha-quality, hacky software with **no security hardening**. Anyone with access to your Discord bot token effectively has shell access to your machine via the TMUX session. Do not use this on shared systems, with sensitive data, or in any environment where security matters. You have been warned.
+> This is alpha-quality, hacky software with **no security hardening**. Anyone with access to your Discord bot token can execute Claude Code prompts on your machine (and optionally tmux commands via `!raw`). Do not use this on shared systems, with sensitive data, or in any environment where security matters. You have been warned.
 
 ### Why?
 
@@ -20,22 +20,34 @@ When away from the development machine, there's no easy way to continue or inter
 ┌─────────────┐         ┌──────────────────────────────────────┐
 │   Discord   │         │   Dev Machine (Desktop)              │
 │   Client    │◄───────►│  ┌─────────────────┐                 │
-│  (Mobile/   │ Discord │  │ backchannel-bot │◄───┐            │
-│   Desktop)  │   API   │  └─────────────────┘    │ local      │
-└─────────────┘         │  ┌─────────────────┐    │ tmux       │
-                        │  │  TMUX Session   │◄───┘ commands   │
-                        │  │  └─► Claude CLI │                 │
+│  (Mobile/   │ Discord │  │ backchannel-bot │                 │
+│   Desktop)  │   API   │  └────────┬────────┘                 │
+└─────────────┘         │           │                          │
+                        │           ▼                          │
+                        │  ┌─────────────────┐                 │
+                        │  │  claude -p      │ ◄─ main relay   │
+                        │  │  (print mode)   │                 │
                         │  └─────────────────┘                 │
+                        │           │                          │
+                        │           ▼ (optional, for ! cmds)   │
+                        │  ┌─────────────────┐                 │
+                        │  │  TMUX Session   │ ◄─ !status,     │
+                        │  │                 │    !interrupt,  │
+                        │  └─────────────────┘    !raw         │
                         └──────────────────────────────────────┘
 ```
 
-The bot runs on the same machine as the Claude CLI session. No SSH, no VPN—just local TMUX commands. The only network traffic is outbound HTTPS to Discord's API.
+**Main relay:** Messages are sent via `claude -p <prompt>` (print mode), which runs Claude Code headlessly and returns clean text output—no TMUX session needed for normal operation.
+
+**Control commands:** The `!status`, `!interrupt`, and `!raw` commands require a TMUX session for session inspection and control.
+
+The bot runs on the same machine as Claude Code CLI. No SSH, no VPN—just local process execution. The only network traffic is outbound HTTPS to Discord's API.
 
 ### User Flow
 
-1. **Setup (One-time):** Create Discord bot, start TMUX session with Claude CLI, start backchannel-bot
-2. **Usage:** Send a message in Discord → Bot relays to TMUX → Claude responds → Bot sends response back to Discord
-3. **Session Management:** `!status` to check health, `!interrupt` to send Ctrl+C
+1. **Setup (One-time):** Create Discord bot, ensure Claude Code CLI is installed, start backchannel-bot
+2. **Usage:** Send a message in Discord → Bot runs `claude -p` → Claude responds → Bot sends response back to Discord
+3. **Session Management (optional):** Start a TMUX session to use `!status`, `!interrupt`, and `!raw` commands
 
 ## Setup
 
@@ -52,13 +64,15 @@ The bot runs on the same machine as the Claude CLI session. No SSH, no VPN—jus
 7. Copy the generated URL and open it to invite the bot to your server
 8. Note the channel ID where you want the bot to operate (right-click channel → Copy ID, requires Developer Mode in Discord settings)
 
-### 2. Start Your TMUX Session
+### 2. (Optional) Start a TMUX Session
+
+> **Note:** A TMUX session is only required if you want to use the `!status`, `!interrupt`, or `!raw` commands. Normal message relay works without TMUX.
 
 ```bash
 # Create a named TMUX session
 tmux new -s claude-session
 
-# Start Claude CLI inside the session
+# Optionally run something in the session (e.g., Claude CLI for interactive use)
 claude
 
 # Detach from TMUX (leave it running in background)
@@ -79,13 +93,13 @@ The `.env` file supports these variables:
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DISCORD_BOT_TOKEN` | Yes | Your Discord bot token |
-| `TMUX_SESSION_NAME` | Yes | Name of your TMUX session (e.g., `claude-session`) |
+| `TMUX_SESSION_NAME` | Yes* | Name of your TMUX session (required only for `!` commands) |
 | `DISCORD_CHANNEL_ID` | No | Restrict bot to one channel (recommended) |
 | `DISCORD_ALLOWED_USER_ID` | No | Restrict bot to one user (recommended) |
-| `TMUX_PANE` | No | Pane number (default: `0`) |
-| `POLL_INTERVAL_MS` | No | How often to check for output (default: `750`) |
-| `RESPONSE_STABLE_SECONDS` | No | Wait time before considering response complete (default: `2`) |
-| `OUTPUT_HISTORY_LINES` | No | Lines to capture from TMUX (default: `200`) |
+| `TMUX_PANE` | No | Pane number for `!` commands (default: `0`) |
+| ~~`POLL_INTERVAL_MS`~~ | — | *Deprecated: unused in current architecture* |
+| ~~`RESPONSE_STABLE_SECONDS`~~ | — | *Deprecated: unused in current architecture* |
+| ~~`OUTPUT_HISTORY_LINES`~~ | — | *Deprecated: unused in current architecture* |
 
 ### 4. Run the Bot
 
