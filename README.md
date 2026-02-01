@@ -37,6 +37,73 @@ The bot runs on the same machine as the Claude CLI session. No SSH, no VPN—jus
 2. **Usage:** Send a message in Discord → Bot relays to TMUX → Claude responds → Bot sends response back to Discord
 3. **Session Management:** `!status` to check health, `!interrupt` to send Ctrl+C
 
+## Setup
+
+### 1. Create a Discord Bot
+
+1. Go to the [Discord Developer Portal](https://discord.com/developers/applications)
+2. Click **New Application**, give it a name
+3. Go to **Bot** in the sidebar, click **Add Bot**
+4. Under **Privileged Gateway Intents**, enable **Message Content Intent**
+5. Click **Reset Token** and copy your bot token (you'll need this later)
+6. Go to **OAuth2 → URL Generator**:
+   - Select scopes: `bot`
+   - Select permissions: `Send Messages`, `Read Message History`
+7. Copy the generated URL and open it to invite the bot to your server
+8. Note the channel ID where you want the bot to operate (right-click channel → Copy ID, requires Developer Mode in Discord settings)
+
+### 2. Start Your TMUX Session
+
+```bash
+# Create a named TMUX session
+tmux new -s claude-session
+
+# Start Claude CLI inside the session
+claude
+
+# Detach from TMUX (leave it running in background)
+# Press: Ctrl+B, then D
+```
+
+### 3. Configure Environment Variables
+
+Create a `.env` file or export these variables:
+
+```bash
+# Required
+export DISCORD_BOT_TOKEN="your_bot_token_here"
+export TMUX_SESSION_NAME="claude-session"
+
+# Optional (but recommended for security)
+export DISCORD_CHANNEL_ID="123456789"        # Restrict to one channel
+export DISCORD_ALLOWED_USER_ID="your_user_id" # Restrict to one user
+
+# Optional tuning
+export TMUX_PANE="0"                # Pane number (default: 0)
+export POLL_INTERVAL_MS="750"       # How often to check for output (default: 750)
+export RESPONSE_STABLE_SECONDS="2"  # Wait time before considering response complete (default: 2)
+export OUTPUT_HISTORY_LINES="200"   # Lines to capture from TMUX (default: 200)
+```
+
+### 4. Run the Bot
+
+```bash
+# Install dependencies
+uv sync
+
+# Run the bot
+uv run python -m backchannel_bot.main
+```
+
+### 5. Test It
+
+Send a message in your Discord channel. The bot will relay it to Claude and send back the response.
+
+**Available commands:**
+- `!status` — Check if the TMUX session exists and is attached/detached
+- `!interrupt` — Send Ctrl+C to the TMUX pane (stop Claude mid-response)
+- `!raw <cmd>` — Run arbitrary tmux commands (e.g., `!raw list-windows`)
+
 ## Ortus Automation
 
 This project was scaffolded with [Ortus](https://github.com/who/ortus), which provides AI-powered development workflows including PRD-to-issues decomposition and automated implementation loops. See the `ortus/` directory for scripts and prompts.
