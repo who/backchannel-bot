@@ -147,40 +147,24 @@ class TestTmuxOutput:
 
 
 class TestRoundTrip:
-    """Tests for the full message round-trip flow."""
+    """Tests for the full message round-trip flow using claude -p."""
 
     @pytest.mark.asyncio
-    async def test_passthrough_sends_to_tmux_and_returns_response(self) -> None:
-        """Messages are sent to TMUX and responses relayed back."""
+    async def test_passthrough_runs_claude_print_and_returns_response(self) -> None:
+        """Messages are sent to Claude via run_claude_print and responses relayed back."""
         with patch.dict(
             os.environ,
             {
                 "DISCORD_BOT_TOKEN": "test-token",
                 "TMUX_SESSION_NAME": "test-session",
-                "POLL_INTERVAL_MS": "100",
-                "RESPONSE_STABLE_SECONDS": "1",
             },
         ):
             config = Config()
             tmux_client = MagicMock(spec=TmuxClient)
             bot = BackchannelBot(config=config, tmux_client=tmux_client)
 
-            # Mock TMUX behavior: capture_output returns different values
-            call_count = [0]
-            outputs = [
-                "initial content",
-                "initial content\nuser: hello",
-                "initial content\nuser: hello\nassistant: hi there",
-                "initial content\nuser: hello\nassistant: hi there",  # stable
-            ]
-
-            def mock_capture() -> str:
-                result = outputs[min(call_count[0], len(outputs) - 1)]
-                call_count[0] += 1
-                return result
-
-            tmux_client.capture_output.side_effect = mock_capture
-            tmux_client.send_input.return_value = True
+            # Mock Claude print mode response
+            tmux_client.run_claude_print.return_value = "Hi there! How can I help you?"
 
             # Mock Discord message
             message = MagicMock()
@@ -193,16 +177,17 @@ class TestRoundTrip:
 
             await bot._handle_passthrough(message)
 
-            # Verify TMUX was called
-            tmux_client.send_input.assert_called_once_with("hello")
-            assert tmux_client.capture_output.call_count >= 2
+            # Verify Claude print mode was called with the message
+            tmux_client.run_claude_print.assert_called_once_with("hello")
 
             # Verify response was sent to Discord
             message.channel.send.assert_called()
+            call_args = message.channel.send.call_args[0][0]
+            assert "Hi there!" in call_args
 
     @pytest.mark.asyncio
-    async def test_passthrough_handles_tmux_error(self) -> None:
-        """TMUX errors during passthrough are reported to Discord."""
+    async def test_passthrough_handles_claude_error(self) -> None:
+        """Claude errors during passthrough are reported to Discord."""
         with patch.dict(
             os.environ,
             {
@@ -214,7 +199,7 @@ class TestRoundTrip:
             tmux_client = MagicMock(spec=TmuxClient)
             bot = BackchannelBot(config=config, tmux_client=tmux_client)
 
-            tmux_client.capture_output.side_effect = TmuxError("session died")
+            tmux_client.run_claude_print.side_effect = TmuxError("command failed")
 
             message = MagicMock()
             message.author.bot = False
@@ -227,7 +212,7 @@ class TestRoundTrip:
 
             # Verify error message sent
             call_args = message.channel.send.call_args[0][0]
-            assert "TMUX error" in call_args
+            assert "Claude error" in call_args
 
 
 # =============================================================================
@@ -290,32 +275,21 @@ class TestTypingIndicator:
     """Tests for typing indicator during response wait."""
 
     @pytest.mark.asyncio
-    async def test_typing_indicator_shown_during_poll(self) -> None:
-        """Typing indicator is shown while polling for TMUX response."""
+    async def test_typing_indicator_shown_during_claude_call(self) -> None:
+        """Typing indicator is shown while waiting for Claude response."""
         with patch.dict(
             os.environ,
             {
                 "DISCORD_BOT_TOKEN": "test-token",
                 "TMUX_SESSION_NAME": "test-session",
-                "POLL_INTERVAL_MS": "50",
-                "RESPONSE_STABLE_SECONDS": "1",
             },
         ):
             config = Config()
             tmux_client = MagicMock(spec=TmuxClient)
             bot = BackchannelBot(config=config, tmux_client=tmux_client)
 
-            # Mock TMUX to return stable output after a few calls
-            outputs = ["before", "before\nafter", "before\nafter"]
-            call_idx = [0]
-
-            def mock_capture() -> str:
-                result = outputs[min(call_idx[0], len(outputs) - 1)]
-                call_idx[0] += 1
-                return result
-
-            tmux_client.capture_output.side_effect = mock_capture
-            tmux_client.send_input.return_value = True
+            # Mock Claude print mode response
+            tmux_client.run_claude_print.return_value = "Response from Claude"
 
             # Create async context manager mock for typing
             typing_context = AsyncMock()
@@ -426,8 +400,8 @@ class TestErrorHandling:
             assert result is False
 
     @pytest.mark.asyncio
-    async def test_send_input_failure_reports_error(self) -> None:
-        """Failed send_input reports error to Discord."""
+    async def test_claude_print_failure_reports_error(self) -> None:
+        """Failed run_claude_print reports error to Discord."""
         with patch.dict(
             os.environ,
             {
@@ -439,8 +413,8 @@ class TestErrorHandling:
             tmux_client = MagicMock(spec=TmuxClient)
             bot = BackchannelBot(config=config, tmux_client=tmux_client)
 
-            tmux_client.capture_output.return_value = "initial"
-            tmux_client.send_input.return_value = False  # Simulate failure
+            # Simulate Claude command failure
+            tmux_client.run_claude_print.side_effect = TmuxError("Claude command failed")
 
             message = MagicMock()
             message.author.bot = False
@@ -451,7 +425,7 @@ class TestErrorHandling:
 
             # Verify error message sent
             call_args = message.channel.send.call_args[0][0]
-            assert "Failed to send input" in call_args
+            assert "Claude error" in call_args
 
 
 # =============================================================================
