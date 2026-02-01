@@ -71,6 +71,19 @@ class BackchannelBot(discord.Client):
         logger.info("Processing message from %s: %s", message.author, message.content)
         # TODO: Forward to TMUX session (implemented in separate issue)
 
+    async def send_response(self, channel: discord.abc.Messageable, text: str) -> discord.Message:
+        """Send a response message to a channel.
+
+        Args:
+            channel: The channel or DM to send the response to.
+            text: The text content to send.
+
+        Returns:
+            The sent message object.
+        """
+        logger.debug("Sending response to channel %s", channel)
+        return await channel.send(text)
+
     def run_bot(self) -> None:
         """Start the bot using the configured token."""
         self.run(self.config.discord_bot_token)
