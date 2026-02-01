@@ -39,8 +39,9 @@ class BackchannelBot(discord.Client):
         Args:
             message: The Discord message received.
         """
-        # Ignore messages from the bot itself
-        if message.author == self.user:
+        # Ignore messages from all bots (including this bot)
+        if message.author.bot:
+            logger.debug("Ignoring bot message from %s", message.author)
             return
 
         # Check channel restriction if configured
