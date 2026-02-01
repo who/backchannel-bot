@@ -5,6 +5,7 @@ import logging
 import discord
 
 from backchannel_bot.config import Config
+from backchannel_bot.tmux_client import TmuxClient
 
 logger = logging.getLogger(__name__)
 
@@ -12,16 +13,18 @@ logger = logging.getLogger(__name__)
 class BackchannelBot(discord.Client):
     """Discord client for backchannel communication with TMUX sessions."""
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, tmux_client: TmuxClient) -> None:
         """Initialize the backchannel bot.
 
         Args:
             config: Bot configuration containing Discord token and settings.
+            tmux_client: Client for interacting with the TMUX session.
         """
         intents = discord.Intents.default()
         intents.message_content = True
         super().__init__(intents=intents)
         self.config = config
+        self.tmux_client = tmux_client
 
     async def on_ready(self) -> None:
         """Handle successful connection to Discord."""
@@ -92,7 +95,7 @@ class BackchannelBot(discord.Client):
             message: The Discord message to pass through to TMUX.
         """
         logger.debug("Passing through to TMUX: %s", message.content)
-        # TODO: Forward to TMUX session via TmuxClient.send_input (bcb-bjf)
+        self.tmux_client.send_input(message.content)
 
     async def send_response(self, channel: discord.abc.Messageable, text: str) -> discord.Message:
         """Send a response message to a channel.
