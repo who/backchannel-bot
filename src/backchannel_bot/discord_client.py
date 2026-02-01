@@ -166,6 +166,8 @@ class BackchannelBot(discord.Client):
 
         if command == "!status":
             await self._handle_status_command(message)
+        elif command == "!raw":
+            await self._handle_raw_command(message)
         else:
             logger.debug("Unknown command: %s", command)
 
@@ -192,6 +194,35 @@ class BackchannelBot(discord.Client):
             await self.send_response(message.channel, response)
         except TmuxError as e:
             logger.exception("TMUX error while handling !status command")
+            await self.send_response(message.channel, f"❌ TMUX error: {e}")
+
+    async def _handle_raw_command(self, message: discord.Message) -> None:
+        """Handle the !raw command to execute arbitrary tmux commands.
+
+        Args:
+            message: The Discord message containing the !raw command.
+        """
+        logger.debug("Handling !raw command")
+
+        # Parse the tmux command from the message (everything after "!raw ")
+        parts = message.content.split(maxsplit=1)
+        if len(parts) < 2:
+            await self.send_response(
+                message.channel, "Usage: `!raw <tmux command>`\nExample: `!raw list-windows`"
+            )
+            return
+
+        tmux_command = parts[1]
+        logger.info("Executing raw tmux command: %s", tmux_command)
+
+        try:
+            output = self.tmux_client.run_raw_command(tmux_command)
+            if output:
+                await self.send_response(message.channel, f"```\n{output}\n```")
+            else:
+                await self.send_response(message.channel, "(no output)")
+        except TmuxError as e:
+            logger.exception("TMUX error while handling !raw command")
             await self.send_response(message.channel, f"❌ TMUX error: {e}")
 
     async def _handle_passthrough(self, message: discord.Message) -> None:

@@ -221,3 +221,39 @@ class TmuxClient:
         except subprocess.SubprocessError as e:
             logger.exception("Subprocess error while capturing TMUX output")
             raise TmuxError(f"Failed to execute tmux command: {e}") from e
+
+    def run_raw_command(self, command: str) -> str:
+        """Run an arbitrary tmux command and return its output.
+
+        Args:
+            command: The tmux command to run (e.g., "list-windows", "display-message -p '#S'").
+
+        Returns:
+            The stdout from the tmux command.
+
+        Raises:
+            TmuxError: If tmux is not installed, command fails, or subprocess fails.
+        """
+        logger.debug("Running raw tmux command: %s", command)
+        try:
+            # Split command into parts for subprocess
+            cmd_parts = ["tmux"] + command.split()
+            result = subprocess.run(
+                cmd_parts,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                output = result.stdout.rstrip()
+                logger.debug("Raw command succeeded, output: %d chars", len(output))
+                return output
+            else:
+                error_msg = result.stderr.strip() or "command failed"
+                logger.error("Raw tmux command failed: %s", error_msg)
+                raise TmuxError(f"tmux command failed: {error_msg}")
+        except FileNotFoundError as e:
+            logger.exception("tmux command not found")
+            raise TmuxError("tmux is not installed") from e
+        except subprocess.SubprocessError as e:
+            logger.exception("Subprocess error while running raw tmux command")
+            raise TmuxError(f"Failed to execute tmux command: {e}") from e
