@@ -97,9 +97,6 @@ The `.env` file supports these variables:
 | `DISCORD_CHANNEL_ID` | No | Restrict bot to one channel (recommended) |
 | `DISCORD_ALLOWED_USER_ID` | No | Restrict bot to one user (recommended) |
 | `TMUX_PANE` | No | Pane number for `!` commands (default: `0`) |
-| ~~`POLL_INTERVAL_MS`~~ | — | *Deprecated: unused in current architecture* |
-| ~~`RESPONSE_STABLE_SECONDS`~~ | — | *Deprecated: unused in current architecture* |
-| ~~`OUTPUT_HISTORY_LINES`~~ | — | *Deprecated: unused in current architecture* |
 
 ### 4. Run the Bot
 
