@@ -65,15 +65,10 @@ class Config:
 
     Required:
         DISCORD_BOT_TOKEN: Discord bot authentication token
-        TMUX_SESSION_NAME: Name of the TMUX session to attach to
 
     Optional:
         DISCORD_CHANNEL_ID: Restrict bot to a specific channel
         DISCORD_ALLOWED_USER_ID: Restrict bot to a specific user
-        TMUX_PANE: TMUX pane number (default: 0)
-        POLL_INTERVAL_MS: Polling interval in milliseconds (default: 750)
-        RESPONSE_STABLE_SECONDS: Seconds of stability before response is complete (default: 2)
-        OUTPUT_HISTORY_LINES: Number of lines to capture from TMUX (default: 200)
         CLAUDE_SESSION_MODE: Session continuation mode (default: "continue")
             - "fresh": Start a new session each time (`claude -p`)
             - "continue": Continue the most recent session (`claude -p --continue`)
@@ -81,7 +76,6 @@ class Config:
     """
 
     discord_bot_token: str = field(default_factory=lambda: _get_required("DISCORD_BOT_TOKEN"))
-    tmux_session_name: str = field(default_factory=lambda: _get_required("TMUX_SESSION_NAME"))
     discord_channel_id: str | None = field(
         default_factory=lambda: _validate_discord_id(
             "DISCORD_CHANNEL_ID", os.environ.get("DISCORD_CHANNEL_ID")
@@ -91,16 +85,6 @@ class Config:
         default_factory=lambda: _validate_discord_id(
             "DISCORD_ALLOWED_USER_ID", os.environ.get("DISCORD_ALLOWED_USER_ID")
         )
-    )
-    tmux_pane: int = field(default_factory=lambda: int(os.environ.get("TMUX_PANE", "0")))
-    poll_interval_ms: int = field(
-        default_factory=lambda: int(os.environ.get("POLL_INTERVAL_MS", "750"))
-    )
-    response_stable_seconds: int = field(
-        default_factory=lambda: int(os.environ.get("RESPONSE_STABLE_SECONDS", "2"))
-    )
-    output_history_lines: int = field(
-        default_factory=lambda: int(os.environ.get("OUTPUT_HISTORY_LINES", "200"))
     )
     claude_session_mode: str = field(
         default_factory=lambda: _validate_session_mode(

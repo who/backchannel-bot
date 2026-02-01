@@ -8,7 +8,7 @@ A hacky Discord back channel for remote communication with Claude Code CLI
 
 > **🚨 SECURITY WARNING 🚨**
 >
-> This is alpha-quality, hacky software with **no security hardening**. Anyone with access to your Discord bot token can execute Claude Code prompts on your machine (and optionally tmux commands via `!raw`). Do not use this on shared systems, with sensitive data, or in any environment where security matters. You have been warned.
+> This is alpha-quality, hacky software with **no security hardening**. Anyone with access to your Discord bot token can execute Claude Code prompts on your machine. Do not use this on shared systems, with sensitive data, or in any environment where security matters. You have been warned.
 
 ### Why?
 
@@ -28,18 +28,10 @@ When away from the development machine, there's no easy way to continue or inter
                         │  │  claude -p      │ ◄─ main relay   │
                         │  │  (print mode)   │                 │
                         │  └─────────────────┘                 │
-                        │           │                          │
-                        │           ▼ (optional, for ! cmds)   │
-                        │  ┌─────────────────┐                 │
-                        │  │  TMUX Session   │ ◄─ !status,     │
-                        │  │                 │    !interrupt,  │
-                        │  └─────────────────┘    !raw         │
                         └──────────────────────────────────────┘
 ```
 
-**Main relay:** Messages are sent via `claude -p <prompt>` (print mode), which runs Claude Code headlessly and returns clean text output—no TMUX session needed for normal operation.
-
-**Control commands:** The `!status`, `!interrupt`, and `!raw` commands require a TMUX session for session inspection and control.
+Messages are sent via `claude -p <prompt>` (print mode), which runs Claude Code headlessly and returns clean text output.
 
 The bot runs on the same machine as Claude Code CLI. No SSH, no VPN—just local process execution. The only network traffic is outbound HTTPS to Discord's API.
 
@@ -47,7 +39,6 @@ The bot runs on the same machine as Claude Code CLI. No SSH, no VPN—just local
 
 1. **Setup (One-time):** Create Discord bot, ensure Claude Code CLI is installed, start backchannel-bot
 2. **Usage:** Send a message in Discord → Bot runs `claude -p` → Claude responds → Bot sends response back to Discord
-3. **Session Management (optional):** Start a TMUX session to use `!status`, `!interrupt`, and `!raw` commands
 
 ### Typical Workflow: Continue From Where You Left Off
 
@@ -89,22 +80,7 @@ The core use case is picking up a Claude session remotely:
 7. Copy the generated URL and open it to invite the bot to your server
 8. Note the channel ID where you want the bot to operate (right-click channel → Copy ID, requires Developer Mode in Discord settings)
 
-### 2. (Optional) Start a TMUX Session
-
-> **Note:** A TMUX session is only required if you want to use the `!status`, `!interrupt`, or `!raw` commands. Normal message relay works without TMUX.
-
-```bash
-# Create a named TMUX session
-tmux new -s claude-session
-
-# Optionally run something in the session (e.g., Claude CLI for interactive use)
-claude
-
-# Detach from TMUX (leave it running in background)
-# Press: Ctrl+B, then D
-```
-
-### 3. Configure Environment Variables
+### 2. Configure Environment Variables
 
 Copy the sample environment file and edit it with your values:
 
@@ -118,13 +94,11 @@ The `.env` file supports these variables:
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DISCORD_BOT_TOKEN` | Yes | Your Discord bot token |
-| `TMUX_SESSION_NAME` | Yes* | Name of your TMUX session (required only for `!` commands) |
 | `DISCORD_CHANNEL_ID` | No | Restrict bot to one channel (recommended) |
 | `DISCORD_ALLOWED_USER_ID` | No | Restrict bot to one user (recommended) |
-| `TMUX_PANE` | No | Pane number for `!` commands (default: `0`) |
 | `CLAUDE_SESSION_MODE` | No | Session continuation mode (default: `continue`). See [Session Continuation](#session-continuation) |
 
-### 4. Run the Bot
+### 3. Run the Bot
 
 ```bash
 # Install dependencies
@@ -134,14 +108,11 @@ uv sync
 uv run python -m backchannel_bot.main
 ```
 
-### 5. Test It
+### 4. Test It
 
 Send a message in your Discord channel. The bot will relay it to Claude and send back the response.
 
 **Available commands:**
-- `!status` — Check if the TMUX session exists and is attached/detached
-- `!interrupt` — Send Ctrl+C to the TMUX pane (stop Claude mid-response)
-- `!raw <cmd>` — Run arbitrary tmux commands (e.g., `!raw list-windows`)
 - `!session` — List recent Claude sessions and view/change session mode
 - `!session <id>` — Switch to resume a specific session by its UUID
 

@@ -2,9 +2,8 @@
 
 These tests verify the core functionality per PRD Success Criteria:
 - Bot connects to Discord and responds to test messages
-- Bot can send text to TMUX session
-- Bot can capture and return TMUX output to Discord
-- Full round-trip works: Discord → TMUX → Claude → TMUX → Discord
+- Bot can run Claude Code in print mode
+- Full round-trip works: Discord → Claude → Discord
 - Messages over 2000 chars are chunked properly
 - Typing indicator shows while waiting for response
 - Basic error messages when things break
@@ -15,9 +14,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from backchannel_bot.claude_client import ClaudeClient, ClaudeError
 from backchannel_bot.config import Config, ConfigurationError
 from backchannel_bot.discord_client import BackchannelBot, chunk_message
-from backchannel_bot.tmux_client import TmuxClient, TmuxError, strip_ansi
 
 # =============================================================================
 # Test 1: Bot connects to Discord and responds to test messages
@@ -33,14 +32,13 @@ class TestDiscordConnection:
             os.environ,
             {
                 "DISCORD_BOT_TOKEN": "test-token",
-                "TMUX_SESSION_NAME": "test-session",
             },
         ):
             config = Config()
-            tmux_client = MagicMock(spec=TmuxClient)
-            bot = BackchannelBot(config=config, tmux_client=tmux_client)
+            claude_client = MagicMock(spec=ClaudeClient)
+            bot = BackchannelBot(config=config, claude_client=claude_client)
             assert bot.config == config
-            assert bot.tmux_client == tmux_client
+            assert bot.claude_client == claude_client
 
     def test_bot_has_message_content_intent(self) -> None:
         """Bot requests message content intent (required for reading messages)."""
@@ -48,101 +46,75 @@ class TestDiscordConnection:
             os.environ,
             {
                 "DISCORD_BOT_TOKEN": "test-token",
-                "TMUX_SESSION_NAME": "test-session",
             },
         ):
             config = Config()
-            tmux_client = MagicMock(spec=TmuxClient)
-            bot = BackchannelBot(config=config, tmux_client=tmux_client)
+            claude_client = MagicMock(spec=ClaudeClient)
+            bot = BackchannelBot(config=config, claude_client=claude_client)
             assert bot.intents.message_content is True
 
 
 # =============================================================================
-# Test 2: Bot can send text to TMUX session
+# Test 2: Bot can run Claude Code in print mode
 # =============================================================================
 
 
-class TestTmuxInput:
-    """Tests for sending input to TMUX."""
+class TestClaudeClient:
+    """Tests for Claude Code client."""
 
-    def test_send_input_uses_send_keys(self) -> None:
-        """TmuxClient.send_input uses tmux send-keys command."""
-        client = TmuxClient(session_name="test-session", pane=0)
+    def test_run_claude_print_calls_subprocess(self) -> None:
+        """ClaudeClient.run_claude_print executes claude -p command."""
+        client = ClaudeClient()
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0)
-            result = client.send_input("hello world")
-            assert result is True
+            mock_run.return_value = MagicMock(returncode=0, stdout="Claude response\n")
+            result = client.run_claude_print("test prompt")
+            assert result == "Claude response"
             mock_run.assert_called_once()
             call_args = mock_run.call_args[0][0]
-            assert call_args[0] == "tmux"
-            assert call_args[1] == "send-keys"
-            assert "-t" in call_args
-            assert "test-session:0" in call_args
-            assert "hello world" in call_args
-            assert "Enter" in call_args
+            assert call_args[0] == "claude"
+            assert call_args[1] == "-p"
+            assert "test prompt" in call_args
+            assert "--continue" in call_args
 
-    def test_send_input_returns_false_on_failure(self) -> None:
-        """TmuxClient.send_input returns False when command fails."""
-        client = TmuxClient(session_name="test-session", pane=0)
+    def test_run_claude_print_fresh_mode(self) -> None:
+        """ClaudeClient.run_claude_print with fresh mode doesn't add --continue."""
+        client = ClaudeClient()
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=1, stderr="session not found")
-            result = client.send_input("test")
-            assert result is False
-
-    def test_send_input_raises_on_missing_tmux(self) -> None:
-        """TmuxClient.send_input raises TmuxError when tmux not installed."""
-        client = TmuxClient(session_name="test-session", pane=0)
-        with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = FileNotFoundError("tmux not found")
-            with pytest.raises(TmuxError, match="tmux is not installed"):
-                client.send_input("test")
-
-
-# =============================================================================
-# Test 3: Bot can capture and return TMUX output to Discord
-# =============================================================================
-
-
-class TestTmuxOutput:
-    """Tests for capturing output from TMUX."""
-
-    def test_capture_output_uses_capture_pane(self) -> None:
-        """TmuxClient.capture_output uses tmux capture-pane command."""
-        client = TmuxClient(session_name="test-session", pane=0, output_history_lines=100)
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout="captured output\n")
-            result = client.capture_output()
-            assert result == "captured output"
-            mock_run.assert_called_once()
+            mock_run.return_value = MagicMock(returncode=0, stdout="Response\n")
+            client.run_claude_print("test", session_mode="fresh")
             call_args = mock_run.call_args[0][0]
-            assert call_args[0] == "tmux"
-            assert call_args[1] == "capture-pane"
-            assert "-p" in call_args
-            assert "-S" in call_args
-            assert "-100" in call_args
+            assert "--continue" not in call_args
+            assert "--resume" not in call_args
 
-    def test_capture_output_strips_ansi(self) -> None:
-        """TmuxClient.capture_output strips ANSI escape codes."""
-        client = TmuxClient(session_name="test-session", pane=0)
+    def test_run_claude_print_resume_mode(self) -> None:
+        """ClaudeClient.run_claude_print with resume mode adds --resume flag."""
+        client = ClaudeClient()
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0, stdout="\x1b[32mgreen text\x1b[0m normal\n"
-            )
-            result = client.capture_output()
-            assert result == "green text normal"
-            assert "\x1b[" not in result
+            mock_run.return_value = MagicMock(returncode=0, stdout="Response\n")
+            client.run_claude_print("test", session_mode="resume:abc-123-def")
+            call_args = mock_run.call_args[0][0]
+            assert "--resume" in call_args
+            assert "abc-123-def" in call_args
 
-    def test_capture_output_raises_on_failure(self) -> None:
-        """TmuxClient.capture_output raises TmuxError on command failure."""
-        client = TmuxClient(session_name="test-session", pane=0)
+    def test_run_claude_print_raises_on_failure(self) -> None:
+        """ClaudeClient.run_claude_print raises ClaudeError on command failure."""
+        client = ClaudeClient()
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=1, stderr="pane not found")
-            with pytest.raises(TmuxError, match="Failed to capture output"):
-                client.capture_output()
+            mock_run.return_value = MagicMock(returncode=1, stderr="error message")
+            with pytest.raises(ClaudeError, match="Claude command failed"):
+                client.run_claude_print("test")
+
+    def test_run_claude_print_raises_on_missing_claude(self) -> None:
+        """ClaudeClient.run_claude_print raises ClaudeError when claude not installed."""
+        client = ClaudeClient()
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = FileNotFoundError("claude not found")
+            with pytest.raises(ClaudeError, match="Claude Code is not installed"):
+                client.run_claude_print("test")
 
 
 # =============================================================================
-# Test 4: Full round-trip works: Discord → TMUX → Claude → TMUX → Discord
+# Test 3: Full round-trip works: Discord → Claude → Discord
 # =============================================================================
 
 
@@ -156,15 +128,14 @@ class TestRoundTrip:
             os.environ,
             {
                 "DISCORD_BOT_TOKEN": "test-token",
-                "TMUX_SESSION_NAME": "test-session",
             },
         ):
             config = Config()
-            tmux_client = MagicMock(spec=TmuxClient)
-            bot = BackchannelBot(config=config, tmux_client=tmux_client)
+            claude_client = MagicMock(spec=ClaudeClient)
+            bot = BackchannelBot(config=config, claude_client=claude_client)
 
             # Mock Claude print mode response
-            tmux_client.run_claude_print.return_value = "Hi there! How can I help you?"
+            claude_client.run_claude_print.return_value = "Hi there! How can I help you?"
 
             # Mock Discord message
             message = MagicMock()
@@ -178,7 +149,7 @@ class TestRoundTrip:
             await bot._handle_passthrough(message)
 
             # Verify Claude print mode was called with the message and session mode
-            tmux_client.run_claude_print.assert_called_once_with("hello", session_mode="continue")
+            claude_client.run_claude_print.assert_called_once_with("hello", session_mode="continue")
 
             # Verify response was sent to Discord
             message.channel.send.assert_called()
@@ -192,14 +163,13 @@ class TestRoundTrip:
             os.environ,
             {
                 "DISCORD_BOT_TOKEN": "test-token",
-                "TMUX_SESSION_NAME": "test-session",
             },
         ):
             config = Config()
-            tmux_client = MagicMock(spec=TmuxClient)
-            bot = BackchannelBot(config=config, tmux_client=tmux_client)
+            claude_client = MagicMock(spec=ClaudeClient)
+            bot = BackchannelBot(config=config, claude_client=claude_client)
 
-            tmux_client.run_claude_print.side_effect = TmuxError("command failed")
+            claude_client.run_claude_print.side_effect = ClaudeError("command failed")
 
             message = MagicMock()
             message.author.bot = False
@@ -216,7 +186,7 @@ class TestRoundTrip:
 
 
 # =============================================================================
-# Test 5: Messages over 2000 chars are chunked properly
+# Test 4: Messages over 2000 chars are chunked properly
 # =============================================================================
 
 
@@ -267,7 +237,7 @@ class TestMessageChunking:
 
 
 # =============================================================================
-# Test 6: Typing indicator shows while waiting for response
+# Test 5: Typing indicator shows while waiting for response
 # =============================================================================
 
 
@@ -281,15 +251,14 @@ class TestTypingIndicator:
             os.environ,
             {
                 "DISCORD_BOT_TOKEN": "test-token",
-                "TMUX_SESSION_NAME": "test-session",
             },
         ):
             config = Config()
-            tmux_client = MagicMock(spec=TmuxClient)
-            bot = BackchannelBot(config=config, tmux_client=tmux_client)
+            claude_client = MagicMock(spec=ClaudeClient)
+            bot = BackchannelBot(config=config, claude_client=claude_client)
 
             # Mock Claude print mode response
-            tmux_client.run_claude_print.return_value = "Response from Claude"
+            claude_client.run_claude_print.return_value = "Response from Claude"
 
             # Create async context manager mock for typing
             typing_context = AsyncMock()
@@ -309,7 +278,7 @@ class TestTypingIndicator:
 
 
 # =============================================================================
-# Test 7: Basic error messages when things break
+# Test 6: Basic error messages when things break
 # =============================================================================
 
 
@@ -331,7 +300,6 @@ class TestErrorHandling:
                 os.environ,
                 {
                     "DISCORD_BOT_TOKEN": "test-token",
-                    "TMUX_SESSION_NAME": "test-session",
                     "DISCORD_CHANNEL_ID": "my-channel",
                 },
             ),
@@ -346,7 +314,6 @@ class TestErrorHandling:
                 os.environ,
                 {
                     "DISCORD_BOT_TOKEN": "test-token",
-                    "TMUX_SESSION_NAME": "test-session",
                     "DISCORD_ALLOWED_USER_ID": "username#1234",
                 },
             ),
@@ -360,7 +327,6 @@ class TestErrorHandling:
             os.environ,
             {
                 "DISCORD_BOT_TOKEN": "test-token",
-                "TMUX_SESSION_NAME": "test-session",
                 "DISCORD_CHANNEL_ID": "123456789012345678",
                 "DISCORD_ALLOWED_USER_ID": "987654321098765432",
             },
@@ -375,7 +341,6 @@ class TestErrorHandling:
             os.environ,
             {
                 "DISCORD_BOT_TOKEN": "test-token",
-                "TMUX_SESSION_NAME": "test-session",
             },
             clear=True,
         ):
@@ -383,21 +348,13 @@ class TestErrorHandling:
             assert config.discord_channel_id is None
             assert config.discord_allowed_user_id is None
 
-    def test_tmux_not_installed_raises_error(self) -> None:
-        """Missing tmux binary raises TmuxError."""
-        client = TmuxClient(session_name="test")
+    def test_claude_not_installed_raises_error(self) -> None:
+        """Missing claude binary raises ClaudeError."""
+        client = ClaudeClient()
         with patch("subprocess.run") as mock_run:
             mock_run.side_effect = FileNotFoundError()
-            with pytest.raises(TmuxError, match="tmux is not installed"):
-                client.check_session()
-
-    def test_session_does_not_exist_returns_false(self) -> None:
-        """Non-existent session returns False from check_session."""
-        client = TmuxClient(session_name="nonexistent")
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=1)
-            result = client.check_session()
-            assert result is False
+            with pytest.raises(ClaudeError, match="Claude Code is not installed"):
+                client.run_claude_print("test")
 
     @pytest.mark.asyncio
     async def test_claude_print_failure_reports_error(self) -> None:
@@ -406,15 +363,14 @@ class TestErrorHandling:
             os.environ,
             {
                 "DISCORD_BOT_TOKEN": "test-token",
-                "TMUX_SESSION_NAME": "test-session",
             },
         ):
             config = Config()
-            tmux_client = MagicMock(spec=TmuxClient)
-            bot = BackchannelBot(config=config, tmux_client=tmux_client)
+            claude_client = MagicMock(spec=ClaudeClient)
+            bot = BackchannelBot(config=config, claude_client=claude_client)
 
             # Simulate Claude command failure
-            tmux_client.run_claude_print.side_effect = TmuxError("Claude command failed")
+            claude_client.run_claude_print.side_effect = ClaudeError("Claude command failed")
 
             message = MagicMock()
             message.author.bot = False
@@ -426,194 +382,3 @@ class TestErrorHandling:
             # Verify error message sent
             call_args = message.channel.send.call_args[0][0]
             assert "Claude error" in call_args
-
-
-# =============================================================================
-# Test 8: Kill TMUX and verify error handling
-# =============================================================================
-
-
-# =============================================================================
-# Test: !interrupt command sends Ctrl+C to TMUX
-# =============================================================================
-
-
-class TestInterruptCommand:
-    """Tests for !interrupt command functionality."""
-
-    def test_send_interrupt_uses_send_keys_with_ctrl_c(self) -> None:
-        """TmuxClient.send_interrupt uses tmux send-keys with C-c."""
-        client = TmuxClient(session_name="test-session", pane=0)
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0)
-            result = client.send_interrupt()
-            assert result is True
-            mock_run.assert_called_once()
-            call_args = mock_run.call_args[0][0]
-            assert call_args[0] == "tmux"
-            assert call_args[1] == "send-keys"
-            assert "-t" in call_args
-            assert "test-session:0" in call_args
-            assert "C-c" in call_args
-
-    def test_send_interrupt_returns_false_on_failure(self) -> None:
-        """TmuxClient.send_interrupt returns False when command fails."""
-        client = TmuxClient(session_name="test-session", pane=0)
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=1, stderr="session not found")
-            result = client.send_interrupt()
-            assert result is False
-
-    def test_send_interrupt_raises_on_missing_tmux(self) -> None:
-        """TmuxClient.send_interrupt raises TmuxError when tmux not installed."""
-        client = TmuxClient(session_name="test-session", pane=0)
-        with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = FileNotFoundError("tmux not found")
-            with pytest.raises(TmuxError, match="tmux is not installed"):
-                client.send_interrupt()
-
-    @pytest.mark.asyncio
-    async def test_interrupt_command_sends_confirmation(self) -> None:
-        """!interrupt command sends confirmation message to Discord."""
-        with patch.dict(
-            os.environ,
-            {
-                "DISCORD_BOT_TOKEN": "test-token",
-                "TMUX_SESSION_NAME": "test-session",
-            },
-        ):
-            config = Config()
-            tmux_client = MagicMock(spec=TmuxClient)
-            bot = BackchannelBot(config=config, tmux_client=tmux_client)
-
-            tmux_client.send_interrupt.return_value = True
-
-            message = MagicMock()
-            message.author.bot = False
-            message.content = "!interrupt"
-            message.channel.send = AsyncMock()
-
-            await bot._handle_interrupt_command(message)
-
-            # Verify confirmation was sent
-            call_args = message.channel.send.call_args[0][0]
-            assert "Sent Ctrl+C" in call_args
-
-    @pytest.mark.asyncio
-    async def test_interrupt_command_reports_failure(self) -> None:
-        """!interrupt command reports failure when tmux command fails."""
-        with patch.dict(
-            os.environ,
-            {
-                "DISCORD_BOT_TOKEN": "test-token",
-                "TMUX_SESSION_NAME": "test-session",
-            },
-        ):
-            config = Config()
-            tmux_client = MagicMock(spec=TmuxClient)
-            bot = BackchannelBot(config=config, tmux_client=tmux_client)
-
-            tmux_client.send_interrupt.return_value = False
-
-            message = MagicMock()
-            message.author.bot = False
-            message.content = "!interrupt"
-            message.channel.send = AsyncMock()
-
-            await bot._handle_interrupt_command(message)
-
-            # Verify error was sent
-            call_args = message.channel.send.call_args[0][0]
-            assert "Failed to send interrupt" in call_args
-
-    @pytest.mark.asyncio
-    async def test_interrupt_command_handles_tmux_error(self) -> None:
-        """!interrupt command handles TmuxError gracefully."""
-        with patch.dict(
-            os.environ,
-            {
-                "DISCORD_BOT_TOKEN": "test-token",
-                "TMUX_SESSION_NAME": "test-session",
-            },
-        ):
-            config = Config()
-            tmux_client = MagicMock(spec=TmuxClient)
-            bot = BackchannelBot(config=config, tmux_client=tmux_client)
-
-            tmux_client.send_interrupt.side_effect = TmuxError("session died")
-
-            message = MagicMock()
-            message.author.bot = False
-            message.content = "!interrupt"
-            message.channel.send = AsyncMock()
-
-            await bot._handle_interrupt_command(message)
-
-            # Verify error message was sent
-            call_args = message.channel.send.call_args[0][0]
-            assert "TMUX error" in call_args
-
-
-class TestTmuxSessionFailure:
-    """Tests for handling TMUX session failures."""
-
-    def test_get_session_status_reports_nonexistent(self) -> None:
-        """get_session_status correctly reports nonexistent session."""
-        client = TmuxClient(session_name="dead-session")
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=1, stderr="no server running")
-            status = client.get_session_status()
-            assert status["exists"] is False
-            assert status["session_name"] == "dead-session"
-
-    def test_status_command_reports_dead_session(self) -> None:
-        """!status command reports when session doesn't exist."""
-        with patch.dict(
-            os.environ,
-            {
-                "DISCORD_BOT_TOKEN": "test-token",
-                "TMUX_SESSION_NAME": "dead-session",
-            },
-        ):
-            config = Config()
-            tmux_client = MagicMock(spec=TmuxClient)
-            # Create bot to ensure it initializes correctly
-            BackchannelBot(config=config, tmux_client=tmux_client)
-
-            tmux_client.get_session_status.return_value = {
-                "session_name": "dead-session",
-                "exists": False,
-            }
-
-            # Verify the status report logic
-            status = tmux_client.get_session_status()
-            assert status["exists"] is False
-
-
-# =============================================================================
-# Additional ANSI stripping tests
-# =============================================================================
-
-
-class TestAnsiStripping:
-    """Tests for ANSI escape code removal."""
-
-    def test_strip_color_codes(self) -> None:
-        """Color codes are stripped."""
-        text = "\x1b[32mgreen\x1b[0m"
-        assert strip_ansi(text) == "green"
-
-    def test_strip_cursor_codes(self) -> None:
-        """Cursor control codes are stripped."""
-        text = "\x1b[H\x1b[2Jcleared screen"
-        assert strip_ansi(text) == "cleared screen"
-
-    def test_strip_terminal_title(self) -> None:
-        """Terminal title sequences are stripped."""
-        text = "\x1b]0;Window Title\x07actual content"
-        assert strip_ansi(text) == "actual content"
-
-    def test_preserve_normal_text(self) -> None:
-        """Normal text without escape codes is preserved."""
-        text = "Hello, World!"
-        assert strip_ansi(text) == "Hello, World!"

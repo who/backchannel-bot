@@ -5,8 +5,8 @@ import logging
 
 import discord
 
+from backchannel_bot.claude_client import ClaudeClient, ClaudeError
 from backchannel_bot.config import Config
-from backchannel_bot.tmux_client import TmuxClient, TmuxError
 
 logger = logging.getLogger(__name__)
 
@@ -62,20 +62,20 @@ def chunk_message(text: str, max_size: int = MAX_CHUNK_SIZE) -> list[str]:
 
 
 class BackchannelBot(discord.Client):
-    """Discord client for backchannel communication with TMUX sessions."""
+    """Discord client for backchannel communication with Claude Code."""
 
-    def __init__(self, config: Config, tmux_client: TmuxClient) -> None:
+    def __init__(self, config: Config, claude_client: ClaudeClient) -> None:
         """Initialize the backchannel bot.
 
         Args:
             config: Bot configuration containing Discord token and settings.
-            tmux_client: Client for interacting with the TMUX session.
+            claude_client: Client for interacting with Claude Code CLI.
         """
         intents = discord.Intents.default()
         intents.message_content = True
         super().__init__(intents=intents)
         self.config = config
-        self.tmux_client = tmux_client
+        self.claude_client = claude_client
 
     async def on_ready(self) -> None:
         """Handle successful connection to Discord."""
@@ -164,89 +164,10 @@ class BackchannelBot(discord.Client):
         logger.debug("Routing to command handler: %s", message.content)
         command = message.content.split()[0].lower()
 
-        if command == "!status":
-            await self._handle_status_command(message)
-        elif command == "!raw":
-            await self._handle_raw_command(message)
-        elif command == "!interrupt":
-            await self._handle_interrupt_command(message)
-        elif command == "!session":
+        if command == "!session":
             await self._handle_session_command(message)
         else:
             logger.debug("Unknown command: %s", command)
-
-    async def _handle_status_command(self, message: discord.Message) -> None:
-        """Handle the !status command to report TMUX session health.
-
-        Args:
-            message: The Discord message containing the !status command.
-        """
-        logger.debug("Handling !status command")
-        try:
-            status = self.tmux_client.get_session_status()
-
-            session_name = status["session_name"]
-            exists = status.get("exists", False)
-
-            if not exists:
-                response = f"**{session_name}**: does not exist"
-            else:
-                attached = status.get("attached", False)
-                state = "attached" if attached else "detached"
-                response = f"**{session_name}**: exists, {state}"
-
-            await self.send_response(message.channel, response)
-        except TmuxError as e:
-            logger.exception("TMUX error while handling !status command")
-            await self.send_response(message.channel, f"❌ TMUX error: {e}")
-
-    async def _handle_raw_command(self, message: discord.Message) -> None:
-        """Handle the !raw command to execute arbitrary tmux commands.
-
-        Args:
-            message: The Discord message containing the !raw command.
-        """
-        logger.debug("Handling !raw command")
-
-        # Parse the tmux command from the message (everything after "!raw ")
-        parts = message.content.split(maxsplit=1)
-        if len(parts) < 2:
-            await self.send_response(
-                message.channel, "Usage: `!raw <tmux command>`\nExample: `!raw list-windows`"
-            )
-            return
-
-        tmux_command = parts[1]
-        logger.info("Executing raw tmux command: %s", tmux_command)
-
-        try:
-            output = self.tmux_client.run_raw_command(tmux_command)
-            if output:
-                await self.send_response(message.channel, f"```\n{output}\n```")
-            else:
-                await self.send_response(message.channel, "(no output)")
-        except TmuxError as e:
-            logger.exception("TMUX error while handling !raw command")
-            await self.send_response(message.channel, f"❌ TMUX error: {e}")
-
-    async def _handle_interrupt_command(self, message: discord.Message) -> None:
-        """Handle the !interrupt command to send Ctrl+C to the TMUX pane.
-
-        Args:
-            message: The Discord message containing the !interrupt command.
-        """
-        logger.debug("Handling !interrupt command")
-        try:
-            if self.tmux_client.send_interrupt():
-                await self.send_response(message.channel, "✅ Sent Ctrl+C to TMUX pane")
-            else:
-                await self.send_response(
-                    message.channel,
-                    "❌ Failed to send interrupt. The TMUX session may not exist.",
-                )
-        except TmuxError as e:
-            logger.exception("TMUX error while handling !interrupt command")
-            await self.send_response(message.channel, f"❌ TMUX error: {e}")
 
     async def _handle_session_command(self, message: discord.Message) -> None:
         """Handle the !session command to list/switch Claude sessions.
@@ -263,7 +184,7 @@ class BackchannelBot(discord.Client):
 
         if len(parts) == 1:
             # List sessions
-            sessions = self.tmux_client.list_claude_sessions()
+            sessions = self.claude_client.list_claude_sessions()
             if not sessions:
                 await self.send_response(
                     message.channel,
@@ -335,7 +256,7 @@ class BackchannelBot(discord.Client):
                 await self.send_response(message.channel, response)
             else:
                 logger.debug("No response from Claude")
-        except TmuxError as e:
+        except ClaudeError as e:
             logger.exception("Error while running Claude Code")
             await self.send_response(message.channel, f"❌ Claude error: {e}")
 
@@ -351,113 +272,10 @@ class BackchannelBot(discord.Client):
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
             None,
-            lambda: self.tmux_client.run_claude_print(
+            lambda: self.claude_client.run_claude_print(
                 prompt, session_mode=self.config.claude_session_mode
             ),
         )
-
-    async def _poll_for_response(self, output_before: str) -> str:
-        """Poll TMUX pane for response until output stabilizes.
-
-        Continuously captures output at configured intervals until
-        no new content appears for response_stable_seconds.
-
-        Args:
-            output_before: TMUX output captured before sending input.
-
-        Returns:
-            The accumulated new content from the TMUX pane.
-        """
-        poll_interval = self.config.poll_interval_ms / 1000.0
-        stable_duration = self.config.response_stable_seconds
-        polls_needed_for_stable = max(1, int(stable_duration / poll_interval))
-
-        logger.debug(
-            "Starting poll loop: interval=%.2fs, stable after %d polls",
-            poll_interval,
-            polls_needed_for_stable,
-        )
-
-        last_output = output_before
-        stable_poll_count = 0
-        poll_cycle = 0
-
-        while True:
-            # Wait for poll interval
-            await asyncio.sleep(poll_interval)
-            poll_cycle += 1
-
-            # Capture current output
-            current_output = self.tmux_client.capture_output()
-            logger.debug("Poll cycle %d: captured %d chars", poll_cycle, len(current_output))
-
-            # Check if output changed since last poll
-            if current_output == last_output:
-                stable_poll_count += 1
-                logger.debug(
-                    "Output stable for %d/%d polls", stable_poll_count, polls_needed_for_stable
-                )
-
-                # Check if we've been stable long enough
-                if stable_poll_count >= polls_needed_for_stable:
-                    logger.debug("Response complete after %d poll cycles", poll_cycle)
-                    break
-            else:
-                # Output changed, reset stability counter
-                stable_poll_count = 0
-                last_output = current_output
-                logger.debug("New content detected, resetting stability counter")
-
-        # Compute and return the diff
-        return self._compute_output_diff(output_before, current_output)
-
-    def _compute_output_diff(self, before: str, after: str) -> str:
-        """Compute the new content in the TMUX output.
-
-        Args:
-            before: TMUX output captured before sending input.
-            after: TMUX output captured after sending input.
-
-        Returns:
-            The new lines that appeared in the output.
-        """
-        if not before:
-            return after
-
-        # Find where the new content starts
-        # The 'before' content should be a suffix of 'after' if nothing scrolled off
-        if after.startswith(before):
-            new_content = after[len(before) :].lstrip("\n")
-            return new_content
-
-        # If content scrolled, find the longest common suffix
-        before_lines = before.split("\n")
-        after_lines = after.split("\n")
-
-        # Find where the before content ends in after
-        # Look for the last few lines of 'before' appearing in 'after'
-        overlap_start = 0
-        for i in range(len(after_lines)):
-            # Check if remaining after_lines match the end of before_lines
-            after_suffix = after_lines[i:]
-            before_suffix_len = min(len(after_suffix), len(before_lines))
-            if before_suffix_len > 0:
-                before_suffix = before_lines[-before_suffix_len:]
-                if after_suffix[:before_suffix_len] == before_suffix:
-                    overlap_start = i + before_suffix_len
-                    break
-
-        # If no overlap found, return everything after the first occurrence
-        # of the last line of 'before'
-        if overlap_start == 0 and before_lines:
-            last_before_line = before_lines[-1]
-            for i, line in enumerate(after_lines):
-                if line == last_before_line:
-                    overlap_start = i + 1
-                    break
-
-        new_lines = after_lines[overlap_start:]
-        return "\n".join(new_lines)
 
     async def send_response(
         self, channel: discord.abc.Messageable, text: str
