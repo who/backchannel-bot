@@ -51,11 +51,12 @@ The core use case is picking up a Claude session remotely:
    # Work with Claude interactively...
    ```
 
-2. **When ready to leave, start the bot from the same directory:**
+2. **When ready to leave, open a new terminal and start the bot from your project directory:**
    ```bash
-   cd /path/to/your/project  # Same directory as step 1!
-   uv run python -m backchannel_bot.main
+   cd /path/to/your/project  # Directory where your Claude session is running
+   uv run --project /path/to/backchannel-bot python -m backchannel_bot.main
    ```
+   Replace `/path/to/backchannel-bot` with wherever you cloned this repo.
 
 3. **Walk away** — continue via Discord from your phone or another device
 
@@ -99,11 +100,14 @@ The `.env` file supports these variables:
 ### 3. Run the Bot
 
 ```bash
-# Install dependencies
+# Clone and install (one-time setup)
+git clone https://github.com/who/backchannel-bot.git /path/to/backchannel-bot
+cd /path/to/backchannel-bot
 uv sync
 
-# Run the bot
-uv run python -m backchannel_bot.main
+# Run the bot from your project directory
+cd /path/to/your/project
+uv run --project /path/to/backchannel-bot python -m backchannel_bot.main
 ```
 
 ### 4. Test It
@@ -154,13 +158,16 @@ This project was scaffolded with [Ortus](https://github.com/who/ortus), which pr
 ## Quick Start
 
 ```bash
-# Install dependencies
+# Clone and install
+git clone https://github.com/who/backchannel-bot.git
+cd backchannel-bot
 uv sync
 
-# Run the project
-uv run python -m app.main
+# Run the bot from your project directory
+cd /path/to/your/project
+uv run --project /path/to/backchannel-bot python -m backchannel_bot.main
 
-# Run tests
+# Run tests (from backchannel-bot directory)
 uv run pytest
 
 # Lint code
