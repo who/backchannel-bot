@@ -92,8 +92,8 @@ class BackchannelBot(discord.Client):
     async def _handle_passthrough(self, message: discord.Message) -> None:
         """Handle passthrough messages (sent directly to TMUX).
 
-        Sends the message to TMUX, waits for output, and relays
-        the new content back to Discord.
+        Sends the message to TMUX, polls for output until stable,
+        and relays the new content back to Discord.
 
         Args:
             message: The Discord message to pass through to TMUX.
@@ -108,20 +108,69 @@ class BackchannelBot(discord.Client):
             await self.send_response(message.channel, "❌ Failed to send input to TMUX")
             return
 
-        # Wait briefly for output to appear
-        await asyncio.sleep(self.config.poll_interval_ms / 1000.0)
-
-        # Capture output after sending input
-        output_after = self.tmux_client.capture_output()
-
-        # Compute the diff - new content only
-        new_content = self._compute_output_diff(output_before, output_after)
+        # Poll for response using configured intervals
+        new_content = await self._poll_for_response(output_before)
 
         # Send new content to Discord if there is any
         if new_content:
             await self.send_response(message.channel, new_content)
         else:
             logger.debug("No new TMUX output to relay")
+
+    async def _poll_for_response(self, output_before: str) -> str:
+        """Poll TMUX pane for response until output stabilizes.
+
+        Continuously captures output at configured intervals until
+        no new content appears for response_stable_seconds.
+
+        Args:
+            output_before: TMUX output captured before sending input.
+
+        Returns:
+            The accumulated new content from the TMUX pane.
+        """
+        poll_interval = self.config.poll_interval_ms / 1000.0
+        stable_duration = self.config.response_stable_seconds
+        polls_needed_for_stable = max(1, int(stable_duration / poll_interval))
+
+        logger.debug(
+            "Starting poll loop: interval=%.2fs, stable after %d polls",
+            poll_interval,
+            polls_needed_for_stable,
+        )
+
+        last_output = output_before
+        stable_poll_count = 0
+        poll_cycle = 0
+
+        while True:
+            # Wait for poll interval
+            await asyncio.sleep(poll_interval)
+            poll_cycle += 1
+
+            # Capture current output
+            current_output = self.tmux_client.capture_output()
+            logger.debug("Poll cycle %d: captured %d chars", poll_cycle, len(current_output))
+
+            # Check if output changed since last poll
+            if current_output == last_output:
+                stable_poll_count += 1
+                logger.debug(
+                    "Output stable for %d/%d polls", stable_poll_count, polls_needed_for_stable
+                )
+
+                # Check if we've been stable long enough
+                if stable_poll_count >= polls_needed_for_stable:
+                    logger.debug("Response complete after %d poll cycles", poll_cycle)
+                    break
+            else:
+                # Output changed, reset stability counter
+                stable_poll_count = 0
+                last_output = current_output
+                logger.debug("New content detected, resetting stability counter")
+
+        # Compute and return the diff
+        return self._compute_output_diff(output_before, current_output)
 
     def _compute_output_diff(self, before: str, after: str) -> str:
         """Compute the new content in the TMUX output.
