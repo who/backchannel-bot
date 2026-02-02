@@ -120,7 +120,7 @@ Send a message in your Discord channel. The bot will relay it to Claude and send
 
 ## Session Continuation
 
-By default, the bot continues the most recent Claude Code session in the working directory. This is the core use case: you're working in Claude on your dev machine, walk away, start the bot, and the bot continues that same conversation.
+By default, the bot continues the most recent Claude Code session in the working directory. This is the core use case: you're working in Claude on your dev machine, start the bot, walk away, and the bot continues that same conversation.
 
 ### Session Modes
 
