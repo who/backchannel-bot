@@ -186,6 +186,120 @@ class TestRoundTrip:
 
 
 # =============================================================================
+# Test: !session command with full IDs and numeric selection
+# =============================================================================
+
+
+class TestSessionCommand:
+    """Tests for the !session command functionality."""
+
+    @pytest.mark.asyncio
+    async def test_session_list_shows_full_ids(self) -> None:
+        """Session list shows full UUIDs, not truncated IDs."""
+        from datetime import datetime
+
+        with patch.dict(
+            os.environ,
+            {
+                "DISCORD_BOT_TOKEN": "test-token",
+            },
+        ):
+            config = Config()
+            claude_client = MagicMock(spec=ClaudeClient)
+            bot = BackchannelBot(config=config, claude_client=claude_client)
+
+            # Mock session list with full UUIDs
+            full_uuid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+            claude_client.list_claude_sessions.return_value = [
+                {
+                    "id": full_uuid,
+                    "timestamp": datetime(2026, 2, 1, 15, 30),
+                    "first_prompt": "Fix the login bug",
+                }
+            ]
+
+            message = MagicMock()
+            message.content = "!session"
+            message.channel.send = AsyncMock()
+
+            await bot._handle_session_command(message)
+
+            # Verify full UUID is in output
+            call_args = message.channel.send.call_args[0][0]
+            assert full_uuid in call_args
+            assert "a1b2c3d4..." not in call_args  # Should NOT be truncated
+
+    @pytest.mark.asyncio
+    async def test_session_numeric_selection(self) -> None:
+        """Users can select session by number (e.g., !session 1)."""
+        from datetime import datetime
+
+        with patch.dict(
+            os.environ,
+            {
+                "DISCORD_BOT_TOKEN": "test-token",
+            },
+        ):
+            config = Config()
+            claude_client = MagicMock(spec=ClaudeClient)
+            bot = BackchannelBot(config=config, claude_client=claude_client)
+
+            full_uuid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+            claude_client.list_claude_sessions.return_value = [
+                {
+                    "id": full_uuid,
+                    "timestamp": datetime(2026, 2, 1, 15, 30),
+                    "first_prompt": "Fix the login bug",
+                }
+            ]
+
+            message = MagicMock()
+            message.content = "!session 1"
+            message.channel.send = AsyncMock()
+
+            await bot._handle_session_command(message)
+
+            # Verify session mode was set
+            assert config.claude_session_mode == f"resume:{full_uuid}"
+            call_args = message.channel.send.call_args[0][0]
+            assert "✅" in call_args
+
+    @pytest.mark.asyncio
+    async def test_session_invalid_number(self) -> None:
+        """Invalid session number gives helpful error."""
+        from datetime import datetime
+
+        with patch.dict(
+            os.environ,
+            {
+                "DISCORD_BOT_TOKEN": "test-token",
+            },
+        ):
+            config = Config()
+            claude_client = MagicMock(spec=ClaudeClient)
+            bot = BackchannelBot(config=config, claude_client=claude_client)
+
+            claude_client.list_claude_sessions.return_value = [
+                {
+                    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                    "timestamp": datetime(2026, 2, 1, 15, 30),
+                    "first_prompt": "Fix the login bug",
+                }
+            ]
+
+            message = MagicMock()
+            message.content = "!session 99"  # Invalid number
+            message.channel.send = AsyncMock()
+
+            await bot._handle_session_command(message)
+
+            # Verify error message
+            call_args = message.channel.send.call_args[0][0]
+            assert "❌" in call_args
+            assert "Invalid session number" in call_args
+
+
+# =============================================================================
 # Test 4: Messages over 2000 chars are chunked properly
 # =============================================================================
 

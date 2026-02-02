@@ -200,33 +200,50 @@ class BackchannelBot(discord.Client):
                 prompt = session["first_prompt"]
                 if len(prompt) > 50:
                     prompt = prompt[:47] + "..."
-                lines.append(f"{i + 1}. `{session['id'][:8]}...` ({ts})")
+                lines.append(f"{i + 1}. `{session['id']}` ({ts})")
                 lines.append(f"   {prompt}\n")
 
             lines.append("\n**Current mode:** " + self.config.claude_session_mode)
-            lines.append("\nTo switch: `!session <full-session-id>`")
+            lines.append("\nTo switch: `!session <number>` or `!session <id>`")
             await self.send_response(message.channel, "\n".join(lines))
         else:
             # Set session mode to resume specific session
-            session_id = parts[1].strip()
+            arg = parts[1].strip()
+
+            # Check if it's a number (for selecting from list)
+            if arg.isdigit():
+                session_num = int(arg)
+                sessions = self.claude_client.list_claude_sessions()
+                if sessions and 1 <= session_num <= len(sessions):
+                    session_id = sessions[session_num - 1]["id"]
+                    self.config.claude_session_mode = f"resume:{session_id}"
+                    await self.send_response(
+                        message.channel,
+                        f"✅ Session mode set to resume `{session_id[:8]}...`\n"
+                        "Future messages will continue that session.",
+                    )
+                else:
+                    await self.send_response(
+                        message.channel,
+                        f"❌ Invalid session number: `{arg}`\n"
+                        "Run `!session` to see available sessions.",
+                    )
             # Validate it looks like a UUID
-            if len(session_id) == 36 and session_id.count("-") == 4:
-                self.config.claude_session_mode = f"resume:{session_id}"
+            elif len(arg) == 36 and arg.count("-") == 4:
+                self.config.claude_session_mode = f"resume:{arg}"
                 await self.send_response(
                     message.channel,
-                    f"✅ Session mode set to resume `{session_id[:8]}...`\n"
+                    f"✅ Session mode set to resume `{arg[:8]}...`\n"
                     "Future messages will continue that session.",
                 )
-            elif session_id.lower() in ("continue", "fresh"):
-                self.config.claude_session_mode = session_id.lower()
-                await self.send_response(
-                    message.channel, f"✅ Session mode set to `{session_id.lower()}`"
-                )
+            elif arg.lower() in ("continue", "fresh"):
+                self.config.claude_session_mode = arg.lower()
+                await self.send_response(message.channel, f"✅ Session mode set to `{arg.lower()}`")
             else:
                 await self.send_response(
                     message.channel,
-                    f"❌ Invalid session ID: `{session_id}`\n"
-                    "Use a full session UUID or 'continue' / 'fresh'.",
+                    f"❌ Invalid session ID: `{arg}`\n"
+                    "Use a number, full session UUID, or 'continue' / 'fresh'.",
                 )
 
     async def _handle_passthrough(self, message: discord.Message) -> None:
