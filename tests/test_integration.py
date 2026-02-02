@@ -7,6 +7,7 @@ These tests verify the core functionality per PRD Success Criteria:
 - Messages over 2000 chars are chunked properly
 - Typing indicator shows while waiting for response
 - Basic error messages when things break
+- Permission requests are displayed in Discord (bcb-ygj)
 """
 
 import os
@@ -14,9 +15,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from backchannel_bot.claude_client import ClaudeClient, ClaudeError
+from backchannel_bot.claude_client import ClaudeClient, ClaudeError, PermissionRequest
 from backchannel_bot.config import Config, ConfigurationError
-from backchannel_bot.discord_client import BackchannelBot, chunk_message
+from backchannel_bot.discord_client import (
+    PERMISSION_ALLOW_EMOJI,
+    PERMISSION_DENY_EMOJI,
+    BackchannelBot,
+    chunk_message,
+)
 
 # =============================================================================
 # Test 1: Bot connects to Discord and responds to test messages
@@ -496,3 +502,245 @@ class TestErrorHandling:
             # Verify error message sent
             call_args = message.channel.send.call_args[0][0]
             assert "Claude error" in call_args
+
+
+# =============================================================================
+# Test: Permission request display (bcb-ygj)
+# =============================================================================
+
+
+class TestPermissionRequestDisplay:
+    """Tests for permission request display functionality."""
+
+    @pytest.mark.asyncio
+    async def test_format_bash_permission_request(self) -> None:
+        """Bash permission requests are formatted correctly."""
+        with patch.dict(
+            os.environ,
+            {
+                "DISCORD_BOT_TOKEN": "test-token",
+            },
+        ):
+            config = Config()
+            claude_client = MagicMock(spec=ClaudeClient)
+            bot = BackchannelBot(config=config, claude_client=claude_client)
+
+            perm_req = PermissionRequest(
+                tool_name="Bash",
+                tool_use_id="test-123",
+                tool_input={
+                    "command": "rm -rf /tmp/test",
+                    "description": "Delete test files",
+                },
+            )
+
+            formatted = await bot._format_permission_request(perm_req)
+
+            assert "Permission Request" in formatted
+            assert "Bash command" in formatted
+            assert "rm -rf /tmp/test" in formatted
+            assert "Delete test files" in formatted
+            assert PERMISSION_ALLOW_EMOJI in formatted
+            assert PERMISSION_DENY_EMOJI in formatted
+
+    @pytest.mark.asyncio
+    async def test_format_write_permission_request(self) -> None:
+        """Write permission requests are formatted correctly."""
+        with patch.dict(
+            os.environ,
+            {
+                "DISCORD_BOT_TOKEN": "test-token",
+            },
+        ):
+            config = Config()
+            claude_client = MagicMock(spec=ClaudeClient)
+            bot = BackchannelBot(config=config, claude_client=claude_client)
+
+            perm_req = PermissionRequest(
+                tool_name="Write",
+                tool_use_id="test-456",
+                tool_input={
+                    "file_path": "/tmp/hello.txt",
+                    "content": "Hello, world!",
+                },
+            )
+
+            formatted = await bot._format_permission_request(perm_req)
+
+            assert "Permission Request" in formatted
+            assert "write to file" in formatted
+            assert "/tmp/hello.txt" in formatted
+            assert "Hello, world!" in formatted
+
+    @pytest.mark.asyncio
+    async def test_format_edit_permission_request(self) -> None:
+        """Edit permission requests are formatted correctly."""
+        with patch.dict(
+            os.environ,
+            {
+                "DISCORD_BOT_TOKEN": "test-token",
+            },
+        ):
+            config = Config()
+            claude_client = MagicMock(spec=ClaudeClient)
+            bot = BackchannelBot(config=config, claude_client=claude_client)
+
+            perm_req = PermissionRequest(
+                tool_name="Edit",
+                tool_use_id="test-789",
+                tool_input={
+                    "file_path": "/tmp/config.py",
+                    "old_string": "DEBUG = False",
+                    "new_string": "DEBUG = True",
+                },
+            )
+
+            formatted = await bot._format_permission_request(perm_req)
+
+            assert "Permission Request" in formatted
+            assert "edit file" in formatted
+            assert "/tmp/config.py" in formatted
+            assert "DEBUG = False" in formatted
+            assert "DEBUG = True" in formatted
+
+    @pytest.mark.asyncio
+    async def test_format_generic_permission_request(self) -> None:
+        """Generic/unknown tool permission requests are formatted correctly."""
+        with patch.dict(
+            os.environ,
+            {
+                "DISCORD_BOT_TOKEN": "test-token",
+            },
+        ):
+            config = Config()
+            claude_client = MagicMock(spec=ClaudeClient)
+            bot = BackchannelBot(config=config, claude_client=claude_client)
+
+            perm_req = PermissionRequest(
+                tool_name="CustomTool",
+                tool_use_id="test-abc",
+                tool_input={"param1": "value1", "param2": "value2"},
+            )
+
+            formatted = await bot._format_permission_request(perm_req)
+
+            assert "Permission Request" in formatted
+            assert "CustomTool" in formatted
+            assert "param1" in formatted
+            assert "value1" in formatted
+
+
+class TestPermissionRequestFlow:
+    """Tests for the permission request flow."""
+
+    @pytest.mark.asyncio
+    async def test_permission_request_adds_reactions(self) -> None:
+        """Permission request message gets both reaction buttons added."""
+        with patch.dict(
+            os.environ,
+            {
+                "DISCORD_BOT_TOKEN": "test-token",
+            },
+        ):
+            config = Config()
+            claude_client = MagicMock(spec=ClaudeClient)
+            bot = BackchannelBot(config=config, claude_client=claude_client)
+
+            # Mock the channel and message
+            mock_message = AsyncMock()
+            mock_message.add_reaction = AsyncMock()
+
+            mock_channel = MagicMock()
+            mock_channel.send = AsyncMock(return_value=mock_message)
+
+            # Mock wait_for to simulate user allowing
+            bot.wait_for = AsyncMock(
+                return_value=(MagicMock(emoji=PERMISSION_ALLOW_EMOJI), MagicMock())
+            )
+
+            perm_req = PermissionRequest(
+                tool_name="Bash",
+                tool_use_id="test-123",
+                tool_input={"command": "ls"},
+            )
+
+            result = await bot._request_permission(mock_channel, perm_req, 12345)
+
+            # Verify reactions were added
+            assert mock_message.add_reaction.call_count == 2
+            calls = [call[0][0] for call in mock_message.add_reaction.call_args_list]
+            assert PERMISSION_ALLOW_EMOJI in calls
+            assert PERMISSION_DENY_EMOJI in calls
+
+            # User allowed
+            assert result is True
+
+    @pytest.mark.asyncio
+    async def test_permission_request_deny_returns_false(self) -> None:
+        """Permission request returns False when user denies."""
+        with patch.dict(
+            os.environ,
+            {
+                "DISCORD_BOT_TOKEN": "test-token",
+            },
+        ):
+            config = Config()
+            claude_client = MagicMock(spec=ClaudeClient)
+            bot = BackchannelBot(config=config, claude_client=claude_client)
+
+            mock_message = AsyncMock()
+            mock_message.add_reaction = AsyncMock()
+
+            mock_channel = MagicMock()
+            mock_channel.send = AsyncMock(return_value=mock_message)
+
+            # Mock wait_for to simulate user denying
+            bot.wait_for = AsyncMock(
+                return_value=(MagicMock(emoji=PERMISSION_DENY_EMOJI), MagicMock())
+            )
+
+            perm_req = PermissionRequest(
+                tool_name="Bash",
+                tool_use_id="test-123",
+                tool_input={"command": "rm -rf /"},
+            )
+
+            result = await bot._request_permission(mock_channel, perm_req, 12345)
+
+            assert result is False
+
+    @pytest.mark.asyncio
+    async def test_permission_request_timeout_returns_false(self) -> None:
+        """Permission request returns False on timeout."""
+        import asyncio
+
+        with patch.dict(
+            os.environ,
+            {
+                "DISCORD_BOT_TOKEN": "test-token",
+            },
+        ):
+            config = Config()
+            claude_client = MagicMock(spec=ClaudeClient)
+            bot = BackchannelBot(config=config, claude_client=claude_client)
+
+            mock_message = AsyncMock()
+            mock_message.add_reaction = AsyncMock()
+
+            mock_channel = MagicMock()
+            mock_channel.send = AsyncMock(return_value=mock_message)
+
+            # Mock wait_for to simulate timeout
+            bot.wait_for = AsyncMock(side_effect=asyncio.TimeoutError())
+
+            perm_req = PermissionRequest(
+                tool_name="Write",
+                tool_use_id="test-456",
+                tool_input={"file_path": "/test", "content": "test"},
+            )
+
+            result = await bot._request_permission(mock_channel, perm_req, 12345)
+
+            assert result is False
+            # Message should be edited to show timeout
+            mock_message.edit.assert_called()
