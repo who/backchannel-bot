@@ -94,8 +94,7 @@ class ClaudeStreamSession:
             "--output-format",
             "stream-json",
             "--verbose",
-            "--permission-mode",
-            "default",
+            "--dangerously-skip-permissions",
         ]
 
         if session_mode == "continue":
@@ -275,7 +274,9 @@ class ClaudeClient:
         )
         try:
             # Build command based on session mode
-            cmd = ["claude", "-p", prompt]
+            # Use --dangerously-skip-permissions to bypass permission prompts
+            # since we can't handle them interactively via Discord
+            cmd = ["claude", "-p", prompt, "--dangerously-skip-permissions"]
             if session_mode == "continue":
                 cmd.append("--continue")
             elif session_mode.startswith("resume:"):
